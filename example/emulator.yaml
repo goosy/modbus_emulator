@@ -1,0 +1,17 @@
+# An example emulator description (doc/spec.md 5).
+layouts:
+  PUMP:
+    - { name: id, type: UInt, offset: 0, init_value: 1 }
+    - name: status
+      type: Word
+      offset: 16
+      coupling:
+        - { name: run, type: Bool, offset: 8, init_value: false, comment: "Pump is running" }
+        - { name: alarm, type: Bool, offset: 0, init_value: false, comment: "Alarm" }
+    - { name: pressure, type: Real, offset: 32, init_value: 1.5, comment: "Outlet pressure" }
+
+devices:
+  - { name: pump_1, unit_id: 1, layout: PUMP }
+
+servers:
+  - { protocol: tcp, host: 0.0.0.0, port: 1502 }

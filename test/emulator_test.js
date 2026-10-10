@@ -1,0 +1,291 @@
+import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import net from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test, { describe } from "node:test";
+import { Modbus_Client } from "es-modbus";
+import { register_layout } from "layout-data";
+import { Modbus_Emulator } from "../src/index.js";
+
+const HOST = "127.0.0.1";
+const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-"));
+let file_seq = 0;
+
+async function free_port() {
+	const probe = net.createServer();
+	await new Promise((resolve) => probe.listen(0, HOST, resolve));
+	const { port } = probe.address();
+	await new Promise((resolve) => probe.close(resolve));
+	return port;
+}
+
+const LAYOUTS = `
+layouts:
+  PUMP:
+    - { name: id, type: UInt, offset: 0, init_value: 7 }
+    - name: status
+      type: Word
+      offset: 16
+      coupling:
+        - { name: run, type: Bool, offset: 8, init_value: false }
+        - { name: alarm, type: Bool, offset: 0, init_value: false }
+    - { name: pressure, type: Real, offset: 32, init_value: 1.5 }
+  SETTING:
+    - { name: limit, type: UInt, offset: 0, init_value: 100 }
+    - { name: spare, type: UInt, offset: 16, init_value: 0 }
+`;
+
+/** Writes an emulator file and returns its path. */
+function write_file(text) {
+	const file = join(dir, `emulator_${++file_seq}.yaml`);
+	writeFileSync(file, text);
+	return file;
+}
+
+// register_layout can succeed only once per process: every layout of this file is registered here,
+// and the descriptions below only name them (layout registration is tested in layout_test.js)
+register_layout([
+	write_file(LAYOUTS),
+	{ layouts: { ONE: [{ name: "a", type: "UInt", offset: 0, init_value: 5 }] } },
+]);
+
+const make = (devices_and_servers, options) => new Modbus_Emulator(write_file(devices_and_servers), options);
+
+const errors_of = (devices_and_servers) => {
+	try {
+		make(devices_and_servers);
+	} catch (e) {
+		return e.errors;
+	}
+	return null;
+};
+
+describe("Modbus_Emulator description", () => {
+	test("creates a data block per device and attaches it to its unit", () => {
+		const emulator = make(`
+devices:
+  - { name: pump, unit_id: 1, layout: PUMP }
+  - { name: setting, unit_id: 1, layout: SETTING, start: 400 }
+  - { name: other, unit_id: 2, layout: PUMP }
+servers:
+  - { protocol: tcp, port: 1502 }
+  - { protocol: rtu_over_tcp, port: 1503 }
+  - { protocol: rtu, port: COM_TEST, baud_rate: 19200 }
+`);
+
+		assert.deepEqual([...emulator.devices.keys()], ["pump", "setting", "other"]);
+		assert.equal(emulator.device("pump").id, 7);
+		assert.equal(emulator.device("setting").limit, 100);
+		assert.deepEqual(emulator.unit_map.unit_ids, [1, 2]);
+		assert.equal(emulator.unit_map[1].length, 2);
+		assert.deepEqual(emulator.servers.map((server) => server.protocol), ["tcp", "rtu_over_tcp", "rtu"]);
+	});
+
+	test("a device without a name is named after its unit", () => {
+		const emulator = make(`
+devices:
+  - { unit_id: 3, layout: PUMP }
+servers:
+  - { protocol: tcp, port: 1502 }
+`);
+
+		assert.ok(emulator.device("unit_3"));
+	});
+
+	test("reports every violation at once", () => {
+		const errors = errors_of(`
+devices:
+  - { name: a, unit_id: 300, layout: PUMP }
+  - { name: b, unit_id: 1, layout: NONE }
+  - { name: c, unit_id: 1, layout: PUMP, start: 3 }
+  - { name: d, unit_id: 1, layout: PUMP }
+  - { name: d, unit_id: 2, layout: PUMP }
+servers:
+  - { protocol: udp, port: 1 }
+  - { protocol: rtu, port: 5 }
+  - { protocol: tcp, port: abc }
+`);
+
+		assert.equal(errors.length, 7, JSON.stringify(errors));
+		assert.match(errors[0], /servers\[0\]: protocol must be one of/);
+		assert.match(errors.join("\n"), /devices\[0\]: unit_id/);
+		assert.match(errors.join("\n"), /devices\[1\]: unknown layout NONE/);
+		assert.match(errors.join("\n"), /devices\[2\]: start must be an even/);
+		assert.match(errors.join("\n"), /devices\[4\]: duplicated device name d/);
+	});
+
+	test("a server answers the units of its unit_ids, the others all units", () => {
+		const emulator = make(`
+devices:
+  - { name: a, unit_id: 1, layout: PUMP }
+  - { name: b, unit_id: 2, layout: PUMP }
+servers:
+  - { protocol: tcp, port: 1502, unit_ids: [1] }
+  - { protocol: rtu, port: COM_TEST, unit_ids: [2] }
+  - { protocol: rtu_over_tcp, port: 1503 }
+`);
+		const [tcp, rtu, rtu_over_tcp] = emulator.servers;
+
+		assert.deepEqual([1, 2].map((id) => tcp.is_valid_unit_id(id)), [true, false]);
+		assert.deepEqual([1, 2].map((id) => rtu.is_valid_unit_id(id)), [false, true]);
+		assert.deepEqual([1, 2].map((id) => rtu_over_tcp.is_valid_unit_id(id)), [true, true]);
+	});
+
+	test("unit_ids must be valid and name units that have a device", () => {
+		const errors = errors_of(`
+devices:
+  - { name: a, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp, port: 1502, unit_ids: [] }
+  - { protocol: tcp, port: 1503, unit_ids: 1 }
+  - { protocol: tcp, port: 1504, unit_ids: [256] }
+  - { protocol: tcp, port: 1505, unit_ids: [1, 7] }
+`);
+
+		assert.equal(errors.length, 4, JSON.stringify(errors));
+		assert.match(errors.join("\n"), /servers\[0\]: unit_ids must be a non-empty list/);
+		assert.match(errors.join("\n"), /servers\[1\]: unit_ids must be a non-empty list/);
+		assert.match(errors.join("\n"), /servers\[2\]: unit_ids must be a non-empty list/);
+		assert.match(errors.join("\n"), /servers\[3\]: unit_ids has unit 7, which has no device/);
+	});
+
+	test("devices and servers are required", () => {
+		assert.deepEqual(errors_of("{}"), [
+			"the root key `servers` must be a non-empty list",
+			"the root key `devices` must be a non-empty list",
+		]);
+	});
+});
+
+describe("Modbus_Emulator object description", () => {
+	const SERVERS = [{ protocol: "tcp", port: 1502 }];
+
+	test("takes the description as an object", () => {
+		const emulator = new Modbus_Emulator({
+			devices: [{ name: "one", unit_id: 4, layout: "ONE" }],
+			servers: SERVERS,
+		});
+
+		assert.equal(emulator.device("one").a, 5);
+		assert.deepEqual(emulator.unit_map.unit_ids, [4]);
+	});
+});
+
+describe("Modbus_Emulator service", () => {
+	async function start(t, options) {
+		const port = await free_port();
+		const emulator = make(`
+devices:
+  - { name: pump, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp, host: ${HOST}, port: ${port} }
+`, options);
+		await emulator.start();
+		t.after(() => emulator.stop());
+		const master = new Modbus_Client(HOST, { port, reconnect_time: 0 });
+		master.on("error", () => { });
+		t.after(() => master.disconnect());
+		return { emulator, master, pump: emulator.device("pump") };
+	}
+
+	test("a master reads what the program sets through the tags", async (t) => {
+		const { master, pump } = await start(t);
+
+		pump.run = true;
+		pump.pressure = 2.5;
+
+		const registers = await master.read([3, 0, 4], 1);
+		assert.equal(registers.readUInt16BE(0), 7);
+		assert.equal(registers.readUInt16BE(2), 0x0001);
+		assert.equal(registers.readFloatBE(4), 2.5);
+	});
+
+	test("a write of the master changes the tags and emits the change", async (t) => {
+		const { master, pump } = await start(t);
+		const changes = [];
+		pump.get("alarm").on("change", (old_value, new_value) => changes.push([old_value, new_value]));
+
+		assert.equal(await master.write([5, 16, 1], true, 1), true); // coil 16 is bit 0 of byte 2: alarm
+
+		assert.equal(pump.alarm, true);
+		assert.deepEqual(changes, [[false, true]]);
+	});
+
+	test("each write of a master emits the write event of the device", async (t) => {
+		const written = [];
+		const { master, pump } = await start(t);
+		pump.on("write", (block) => written.push(block.name));
+
+		await master.write([6, 0, 1], 9, 1);
+
+		assert.deepEqual(written, ["pump"]);
+	});
+
+	test("two servers share the devices and each answers only its units", async (t) => {
+		const [port_a, port_b] = [await free_port(), await free_port()];
+		const emulator = make(`
+devices:
+  - { name: a, unit_id: 1, layout: PUMP }
+  - { name: b, unit_id: 2, layout: PUMP }
+servers:
+  - { protocol: tcp, host: ${HOST}, port: ${port_a}, unit_ids: [1] }
+  - { protocol: rtu_over_tcp, host: ${HOST}, port: ${port_b}, unit_ids: [1, 2] }
+`);
+		await emulator.start();
+		t.after(() => emulator.stop());
+		const connect = (port, rtu) => {
+			const master = new Modbus_Client(HOST, { port, rtu, reconnect_time: 0 });
+			master.on("error", () => { });
+			t.after(() => master.disconnect());
+			return master;
+		};
+		const tcp = connect(port_a, false);
+		const rtu = connect(port_b, true);
+
+		// a write over the TCP server is seen over the other one: one shared device
+		assert.equal(await tcp.write([6, 0, 1], 42, 1), true);
+		assert.equal(emulator.device("a").id, 42);
+		assert.equal((await rtu.read([3, 0, 1], 1)).readUInt16BE(0), 42);
+		assert.equal((await rtu.read([3, 0, 1], 2)).readUInt16BE(0), 7);
+		await assert.rejects(tcp.read([3, 0, 1], 2), { message: "response error: 11" });
+	});
+
+	test("all the servers share one vector and the unmapped warning is reported once", async (t) => {
+		const [port_a, port_b] = [await free_port(), await free_port()];
+		const warnings = [];
+		const emulator = make(`
+devices:
+  - { name: a, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp, host: ${HOST}, port: ${port_a} }
+  - { protocol: tcp, host: ${HOST}, port: ${port_b} }
+`, { logger: { warn: (message) => warnings.push(message) } });
+		await emulator.start();
+		t.after(() => emulator.stop());
+		const masters = [port_a, port_b].map((port) => {
+			const master = new Modbus_Client(HOST, { port, reconnect_time: 0 });
+			master.on("error", () => { });
+			t.after(() => master.disconnect());
+			return master;
+		});
+
+		for (const master of masters) await master.read([3, 1000, 1], 1);
+
+		assert.ok(emulator.vector);
+		assert.equal(warnings.length, 1);
+	});
+
+	test("the emulator can be stopped and started again", async (t) => {
+		const { emulator, master, pump } = await start(t);
+		await emulator.stop();
+		await emulator.start();
+
+		const retry = new Modbus_Client(HOST, { port: emulator.servers[0].port, reconnect_time: 0 });
+		retry.on("error", () => { });
+		t.after(() => retry.disconnect());
+		assert.deepEqual(await retry.read([3, 0, 1], 1), Buffer.from([0, pump.id]));
+		assert.ok(master);
+	});
+});

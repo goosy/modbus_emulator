@@ -1,0 +1,85 @@
+# modbus_emulator
+
+A Modbus device emulator library. It provides Modbus slave services (TCP, RTU over TCP, RTU) over structured data blocks, and exposes the data through the Ldata / Ltag API of [layout-data](https://www.npmjs.com/package/layout-data), so your code can compute on the data to emulate a running device.
+
+## Features
+
+- Slave transports: Modbus TCP, RTU over TCP, RTU (serial port).
+- Several services at once, sharing the same data blocks.
+- Devices are described in a YAML file, or assembled in code with `Unit_Map`.
+- Writes from the master go through Ldata, so the `change` and `write` events fire as usual.
+
+## Install
+
+```sh
+pnpm add modbus_emulator
+```
+
+Requires Node.js >= 20.11.
+
+## Usage
+
+### From a description file
+
+```yaml
+# emulator.yaml
+layouts:
+  PUMP:
+    - { name: id, type: UInt, offset: 0, init_value: 1 }
+    - { name: pressure, type: Real, offset: 32, init_value: 1.5 }
+
+devices:
+  - { name: pump_1, unit_id: 1, layout: PUMP }
+
+servers:
+  - { protocol: tcp, host: 0.0.0.0, port: 1502 }
+```
+
+```js
+import { Modbus_Emulator } from "modbus_emulator";
+
+const emulator = new Modbus_Emulator("emulator.yaml", { logger: console });
+await emulator.start();
+
+const pump = emulator.device("pump_1"); // a Ldata of layout-data
+// ... apply your own computation to pump ...
+
+await emulator.stop();
+```
+
+An invalid description file throws an `Error`; its `errors` property lists all violations.
+
+### Without a description file
+
+```js
+import { Unit_Map, create_tcp_server } from "modbus_emulator";
+
+const unit_map = new Unit_Map();
+unit_map.attach_unit(1, block, 0, 0);
+
+const server = create_tcp_server("0.0.0.0", 1502, unit_map, { logger: console });
+await server.start();
+```
+
+`create_rtu_server(path, unit_map, options)` creates an RTU slave on a serial port. `create_vector(unit_map, { logger })` returns the es-modbus server vector for fully custom assembly.
+
+## Address mapping
+
+- Register `addr` is byte `addr * 2` of the unit, big-endian. Holding and input registers share the same content.
+- Coil `addr` is bit `addr % 8` of byte `addr >> 3`.
+- Addresses with no device read as 0 / false and ignore writes (warned once per address).
+
+See [doc/spec.md](doc/spec.md) for the full specification and [doc/design.md](doc/design.md) for the implementation. Chinese editions: [doc/spec.zh-CN.md](doc/spec.zh-CN.md), [doc/design.zh-CN.md](doc/design.zh-CN.md).
+
+## Development
+
+```sh
+pnpm install
+pnpm build   # bundle src/index.js into dist/modbus_emulator.js
+pnpm test    # build, then node --test
+pnpm lint
+```
+
+## License
+
+ISC

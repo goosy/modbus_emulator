@@ -1,0 +1,18 @@
+# source
+src/
+node_modules/
+
+# pack
+.yarn-integrity
+yarn.lock
+.yarn/
+.yarnrc.yml
+rollup.config.js
+
+# editor
+.vscode/
+
+# test & production
+example/
+test/
+.pnp*

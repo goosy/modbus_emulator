@@ -1,0 +1,79 @@
+# modbus_emulator Specification
+
+> Chinese edition: [spec.zh-CN.md](spec.zh-CN.md). Keep the two in sync.
+
+## 1. Goals and Scope
+
+modbus_emulator is a Modbus device emulator library. It provides Modbus slave services to the outside, and exposes the data through the Ldata / Ltag API of [layout-data](https://www.npmjs.com/package/layout-data), so that callers can apply extra computation to emulate the running of a device.
+
+- Slave transports: Modbus TCP, RTU over TCP, RTU (serial port).
+- One emulator can provide several services at the same time, sharing the same set of data blocks.
+- It is published as a library. A controller or similar program can use its server part to publish its own data blocks to a host (HMI/SCADA).
+
+Out of scope: the Modbus master (client), the business logic of a device (implemented by the caller through Ldata), and the concrete logger (injected by the caller).
+
+## 2. Terms
+
+| Term | Meaning |
+| --- | --- |
+| Device | A named data block (Ldata), laid out in bytes and attached to a byte offset of a unit |
+| Unit | A slave address identified by a unit id. A unit can hold several devices, each in a different byte range |
+| Unit map (`Unit_Map`) | The mapping from unit ids to devices and their byte ranges |
+
+## 3. Address Mapping
+
+- Layouts and data blocks are static. The description file is read once at construction. After the devices (Ldata) and the unit map are built, none is added or removed and no layout changes. A running service cares only about the values, and does not handle changes of the data blocks.
+
+- Register `addr` corresponds to byte `addr * 2` of the unit. The content of the device is read and written in big-endian.
+- Coil `addr` corresponds to bit `addr % 8` of byte `addr >> 3`.
+- Holding registers and input registers have the same content. Registers and coils are readable and writable.
+- Writes go through the write methods of Ldata, so the `change` and `write` events of the device fire as usual.
+- An address in a unit with no device reads as 0 / false, and a write to it is ignored. No exception is returned, so a block read across a gap still succeeds. A warning is reported once per (type, unit, address).
+- An unregistered unit id is answered with exception code 0x0B by es-modbus. An illegal function code, an illegal quantity, or an address out of range is answered with 0x01 / 0x03 / 0x02.
+
+## 4. Interface
+
+- `Modbus_Emulator(source, options)`: the main constructor. `source` is the path of a description file (section 5). It builds the devices and the services.
+  - `devices`: a map from device names to Ldata. `device(name)` gets one device. `unit_map`: the unit map. `servers`: the server instances.
+  - `start()` / `stop()`: start / stop all services.
+  - An invalid description file throws an `Error` whose `errors` property lists all violations.
+- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, logger })`: creates a Modbus TCP service. With `rtu: true` it uses RTU frames on the TCP socket (RTU over TCP). It returns the es-modbus `Modbus_Server`, not started.
+- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, logger })`: creates an RTU slave on a serial port. It returns a `Modbus_Server`, and the port is opened only at `start()`.
+- `unit_ids`: optional, the unit ids a service answers. It defaults to all the units of `unit_map`. A unit id outside the list is answered with exception code 0x0B by es-modbus.
+- `vector`: optional, the vector to serve (the result of `create_vector`). Servers of one unit map can share one. By default it is built from the unit map.
+- `Unit_Map` / `create_vector(unit_map, { logger })`: the unit map and the es-modbus server vector, for callers that do not use a description file (such as a controller) and assemble things themselves.
+- `logger`: optional, with `info` / `warn` / `error` methods. When it is absent, or a method is missing, nothing is output.
+
+## 5. Description File
+
+A YAML 1.2 file with three parts:
+
+```yaml
+# 1. layouts and fragments, in the format of layout-data
+layouts:
+  PUMP:
+    - { name: id, type: UInt, offset: 0, init_value: 7 }
+    - { name: pressure, type: Real, offset: 16, init_value: 1.5 }
+
+# 2. the devices
+devices:
+  - { name: pump_1, unit_id: 1, layout: PUMP }               # unit_id: 0..255
+  - { name: pump_2, unit_id: 1, layout: PUMP, start: 400 }   # start: byte offset in the unit, even
+
+# 3. the services
+servers:
+  - { protocol: tcp, host: 0.0.0.0, port: 502 }
+  - { protocol: rtu_over_tcp, port: 503 }
+  - { protocol: rtu, port: COM3, baud_rate: 9600, parity: none }
+```
+
+- `devices[].name` defaults to `unit_<unit_id>`, and device names must be unique. `offset` (optional) is the start byte inside the device data block.
+- `servers[].protocol` is one of `tcp`, `rtu_over_tcp`, `rtu`. For `tcp` and `rtu_over_tcp`, `host` defaults to `0.0.0.0` and `port` to 502. For `rtu`, `port` is the serial port path, with optional `baud_rate`, `parity`, `data_bits`, `stop_bits`.
+- `servers[].unit_ids` (optional) are the unit ids the service answers: a non-empty list of integers from 0 to 255, each of which must have a device. By default the service answers all units.
+- The layouts may be kept out of the description, or split: the root key `layouts_file` names a layout file (relative to the description file); `layouts` and fragments may be given as well, and all of them are registered together (a name defined twice is an error). When neither is given, the devices use the layouts already registered in the process.
+- All services share one unit map and the same data blocks. `unit_ids` only decides which units each service answers.
+
+## 6. Distribution
+
+- Published as an ES module library with the entry `modbus_emulator`. It depends on `layout-data` and `es-modbus`. `yaml` is bundled into the library.
+- Node.js >= 20.11.
