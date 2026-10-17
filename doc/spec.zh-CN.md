@@ -2,7 +2,7 @@
 
 ## 1. 目标与范围
 
-modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站服务，并通过 [layout-data](https://www.npmjs.com/package/layout-data) 的 Ldata / Ltag 对外提供操作 API，使调用方可以施加额外的运算，模拟一个设备的运行。
+modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站服务，并通过 [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md) 的 Ldata / Ltag 对外提供操作 API，使调用方可以施加额外的运算，模拟一个设备的运行。
 
 - 从站服务的传输：Modbus TCP、RTU over TCP、RTU（串口）；
 - 同一个模拟器可以同时提供多个服务，共用同一组数据块；
@@ -38,7 +38,7 @@ modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - `create_tcp_server(host, port, unit_map, { rtu, unit_ids, logger })`：创建 Modbus TCP 服务；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, logger })`：创建串口上的 RTU 从站。返回 `Modbus_Server`，`start()` 时才打开串口。
 - `Unit_Map` / `create_vector(unit_map, { logger })`：单元表和 es-modbus 的服务端 vector，供不用描述文件的调用方（如控制器）自行组装。
-- `Ldata`、`Ltag`、`register_layout`、`get_layout`、`io_index_table`、`render_types`，以及与之相配的 layout-data 类型（`Layout`、`Layout_Tag`、`Layout_Item`、`Tag_Item`、`Include_Item`、`Layout_Description`、`Layout_Source`、`Registered_Layouts`、`Endian`、`Tag_Type`）：调用方用到的 [layout-data](https://www.npmjs.com/package/layout-data) 接口，原样转发。设备就是 `Ldata` 对象，所以调用方只从本包取得这些接口，不再自己依赖 layout-data，进程里也只有一份（`register_layout` 每个进程只能成功调用一次，需要这一点）。转发的接口随本包所依赖的 layout-data 版本而变。
+- `Ldata`、`Ltag`、`register_layout`、`get_layout`、`io_index_table`、`render_types`，以及与之相配的 layout-data 类型（`Layout`、`Layout_Tag`、`Layout_Item`、`Tag_Item`、`Include_Item`、`Layout_Description`、`Layout_Source`、`Registered_Layouts`、`Endian`、`Tag_Type`）：调用方用到的 [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md) 接口，原样转发。设备就是 `Ldata` 对象，所以调用方只从本包取得这些接口，不再自己依赖 layout-data，进程里也只有一份（`register_layout` 每个进程只能成功调用一次，需要这一点）。转发的接口随本包所依赖的 layout-data 版本而变。
 - `unit_ids`：可选，该服务应答的单元号列表，缺省为 `unit_map` 中的全部单元；列表外的单元号由 es-modbus 应答异常码 0x0B；
 - `vector`：可选，要服务的 vector（`create_vector` 的结果）；同一个单元表的多个服务可以共用一个，缺省时由单元表建立；
 - `logger`：可选，含 `info` / `warn` / `error` 方法；缺省或缺方法时不输出。

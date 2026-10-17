@@ -1,6 +1,6 @@
 # modbus_emulator
 
-A Modbus device emulator library. It provides Modbus slave services (TCP, RTU over TCP, RTU) over structured data blocks, and exposes the data through the Ldata / Ltag API of [layout-data](https://www.npmjs.com/package/layout-data), so your code can compute on the data to emulate a running device.
+A Modbus device emulator library. It provides Modbus slave services (TCP, RTU over TCP, RTU) over structured data blocks, and exposes the data through the Ldata / Ltag API of [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md), so your code can compute on the data to emulate a running device.
 
 ## Features
 
