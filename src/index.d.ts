@@ -61,10 +61,10 @@ export class Modbus_Emulator {
 	});
 	unit_map: Unit_Map;
 	vector: Modbus_Vector;
-	devices: Map<string, Ldata>;
+	blocks: Map<string, Ldata>;
 	layouts: Record<string, Layout>;
 	servers: Modbus_Server[];
-	device(name: string): Ldata | undefined;
+	block(name: string): Ldata | undefined;
 	start(): Promise<void>;
 	stop(): Promise<void>;
 }

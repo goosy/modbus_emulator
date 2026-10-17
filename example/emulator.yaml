@@ -10,7 +10,7 @@ layouts:
         - { name: alarm, type: Bool, offset: 0, init_value: false, comment: "Alarm" }
     - { name: pressure, type: Real, offset: 32, init_value: 1.5, comment: "Outlet pressure" }
 
-devices:
+blocks:
   - { name: pump_1, unit_id: 1, layout: PUMP }
 
 servers:

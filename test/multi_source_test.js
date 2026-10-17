@@ -15,25 +15,25 @@ layouts:
   PUMP:
     - { name: id, type: UInt, offset: 0, init_value: 7 }
 `);
-	writeFileSync(join(dir, "devices.yaml"), `
+	writeFileSync(join(dir, "blocks.yaml"), `
 layouts_file: layouts.yaml
-devices:
+blocks:
   - { name: pump_1, unit_id: 1, layout: PUMP }
 `);
 	writeFileSync(join(dir, "servers.yaml"), `
 layouts:
   ONE:
     - { name: a, type: UInt, offset: 0, init_value: 5 }
-devices:
+blocks:
   - { name: one, unit_id: 2, layout: ONE }
 servers:
   - { protocol: tcp, port: 1502 }
 `);
 
-	const emulator = new Modbus_Emulator([join(dir, "devices.yaml"), join(dir, "servers.yaml")]);
-	assert.deepEqual([...emulator.devices.keys()], ["pump_1", "one"]);
-	assert.equal(emulator.device("pump_1").id, 7);
-	assert.equal(emulator.device("one").a, 5);
+	const emulator = new Modbus_Emulator([join(dir, "blocks.yaml"), join(dir, "servers.yaml")]);
+	assert.deepEqual([...emulator.blocks.keys()], ["pump_1", "one"]);
+	assert.equal(emulator.block("pump_1").id, 7);
+	assert.equal(emulator.block("one").a, 5);
 	assert.equal(emulator.servers.length, 1);
 	assert.deepEqual(Object.keys(emulator.layouts).sort(), ["ONE", "PUMP"]);
 	assert.equal("fragments" in emulator, false);
@@ -41,11 +41,11 @@ servers:
 
 test("an error names its file when there are several", () => {
 	writeFileSync(join(dir, "bad.yaml"), `
-devices:
+blocks:
   - { name: x, unit_id: 300, layout: PUMP }
 `);
 	assert.throws(
 		() => new Modbus_Emulator([join(dir, "servers.yaml"), join(dir, "bad.yaml")]),
-		(e) => e.errors.some((m) => m === `${join(dir, "bad.yaml")}: devices[1]: unit_id must be an integer from 0 to 255`),
+		(e) => e.errors.some((m) => m === `${join(dir, "bad.yaml")}: blocks[1]: unit_id must be an integer from 0 to 255`),
 	);
 });

@@ -6,7 +6,7 @@ A Modbus device emulator library. It provides Modbus slave services (TCP, RTU ov
 
 - Slave transports: Modbus TCP, RTU over TCP, RTU (serial port).
 - Several services at once, sharing the same data blocks.
-- Devices are described in a YAML file, or assembled in code with `Unit_Map`.
+- Blocks are described in a YAML file, or assembled in code with `Unit_Map`.
 - Writes from the master go through Ldata, so the `change` and `write` events fire as usual.
 
 ## Install
@@ -28,7 +28,7 @@ layouts:
     - { name: id, type: UInt, offset: 0, init_value: 1 }
     - { name: pressure, type: Real, offset: 32, init_value: 1.5 }
 
-devices:
+blocks:
   - { name: pump_1, unit_id: 1, layout: PUMP }
 
 servers:
@@ -41,7 +41,7 @@ import { Modbus_Emulator } from "modbus_emulator";
 const emulator = new Modbus_Emulator("emulator.yaml", { logger: console });
 await emulator.start();
 
-const pump = emulator.device("pump_1"); // a Ldata of layout-data
+const pump = emulator.block("pump_1"); // a Ldata of layout-data
 // ... apply your own computation to pump ...
 
 await emulator.stop();
@@ -67,7 +67,7 @@ await server.start();
 
 - Register `addr` is byte `addr * 2` of the unit, big-endian. Holding and input registers share the same content.
 - Coil `addr` is bit `addr % 8` of byte `addr >> 3`.
-- Addresses with no device read as 0 / false and ignore writes (warned once per address).
+- Addresses with no block read as 0 / false and ignore writes (warned once per address).
 
 See [doc/spec.md](doc/spec.md) for the full specification and [doc/design.md](doc/design.md) for the implementation. Chinese editions: [doc/spec.zh-CN.md](doc/spec.zh-CN.md), [doc/design.zh-CN.md](doc/design.zh-CN.md).
 

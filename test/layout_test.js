@@ -19,7 +19,7 @@ test("layout errors are reported with the others", () => {
 				{ name: "a", type: "UInt", offset: 16, init_value: 0 },
 			],
 		},
-		devices: [{ name: "a", unit_id: 1, layout: "BAD" }],
+		blocks: [{ name: "a", unit_id: 1, layout: "BAD" }],
 		servers: SERVERS,
 	}), (e) => e.errors.some((m) => m.includes("duplicated name")) && e.errors.some((m) => m.includes("unknown layout BAD")));
 });
@@ -36,7 +36,7 @@ layouts_file: pump.yaml
 layouts:
   ONE:
     - { name: a, type: UInt, offset: 0, init_value: 5 }
-devices:
+blocks:
   - { name: pump, unit_id: 1, layout: PUMP }
   - { name: one, unit_id: 2, layout: ONE }
 servers:
@@ -44,6 +44,6 @@ servers:
 `);
 
 	const emulator = new Modbus_Emulator(file);
-	assert.equal(emulator.device("pump").id, 7);
-	assert.equal(emulator.device("one").a, 5);
+	assert.equal(emulator.block("pump").id, 7);
+	assert.equal(emulator.block("one").a, 5);
 });

@@ -20,7 +20,7 @@ const PROTOCOLS = ["tcp", "rtu_over_tcp", "rtu"];
  * A Modbus device emulator: slave services over the data blocks described by
  * a YAML file (doc/spec.md 3).
  *
- * The data blocks are Ldata objects, available as `devices` by name: a caller
+ * The data blocks are Ldata objects, available as `blocks` by name: a caller
  * reads and writes their tags to simulate the running of a device, and the
  * masters see the same data through the servers.
  */
@@ -29,8 +29,8 @@ export class Modbus_Emulator {
 	unit_map = new Unit_Map();
 	/** @type {Object} The vector shared by all the servers. */
 	vector;
-	/** @type {Map<string, Ldata>} The data blocks by device name. */
-	devices = new Map();
+	/** @type {Map<string, Ldata>} The data blocks by block name. */
+	blocks = new Map();
 	/** @type {Object<string, Object>} The compiled layouts by name. */
 	layouts;
 	/** @type {import('es-modbus').Modbus_Server[]} */
@@ -38,7 +38,7 @@ export class Modbus_Emulator {
 
 	/**
 	 * @param {string|string[]} source - The path of an emulator description file (YAML), or a list of paths: the
-	 *     `devices` and `servers` of the files are joined in order, and their layouts are registered together.
+	 *     `blocks` and `servers` of the files are joined in order, and their layouts are registered together.
 	 *     Not public: an object of the same structure is also accepted in place of a path, for the controller that
 	 *     assembles it; a relative `layouts_file` then is relative to the current directory. `layouts_file` names
 	 *     a layout file, instead of giving the layouts in the description.
@@ -58,7 +58,7 @@ export class Modbus_Emulator {
 		};
 		// with several sources, a violation names its source
 		const prefixes = labels.map((label) => (sources.length > 1 ? `${label}: ` : ""));
-		const device_entries = [];
+		const block_entries = [];
 		const server_entries = [];
 		const layout_sources = [];
 		for (const [index, item] of sources.entries()) {
@@ -76,8 +76,8 @@ export class Modbus_Emulator {
 				errors.push(`${prefix}the root must be a mapping`);
 				continue;
 			}
-			const { devices, servers, layouts_file, ...layout_root } = root;
-			for (const [key, list, entries] of [["devices", devices, device_entries], ["servers", servers, server_entries]]) {
+			const { blocks, servers, layouts_file, ...layout_root } = root;
+			for (const [key, list, entries] of [["blocks", blocks, block_entries], ["servers", servers, server_entries]]) {
 				if (list === undefined) continue;
 				if (!Array.isArray(list)) errors.push(`${prefix}the root key \`${key}\` must be a list`);
 				else for (const entry of list) entries.push({ entry, where: `${prefix}${key}[${entries.length}]` });
@@ -96,7 +96,7 @@ export class Modbus_Emulator {
 
 		let compiled = { layouts: {} };
 		try {
-			// without sources the devices use the layouts that are already registered
+			// without sources the blocks use the layouts that are already registered
 			if (layout_sources.length > 0) compiled = register_layout(layout_sources);
 		} catch (e) {
 			errors.push(...(e.errors ?? [e.message]));
@@ -104,7 +104,7 @@ export class Modbus_Emulator {
 		this.layouts = compiled.layouts;
 
 		const checked_servers = this.#read_servers(server_entries, errors);
-		this.#read_devices(device_entries, errors);
+		this.#read_blocks(block_entries, errors);
 		this.#check_server_units(checked_servers, errors);
 		if (errors.length > 0) fail();
 
@@ -112,14 +112,14 @@ export class Modbus_Emulator {
 		for (const { options } of checked_servers) this.servers.push(this.#create_server(options));
 	}
 
-	#read_devices(entries, errors, block_options) {
+	#read_blocks(entries, errors, block_options) {
 		if (entries.length === 0) {
-			errors.push("the root key `devices` must be a non-empty list");
+			errors.push("the root key `blocks` must be a non-empty list");
 			return;
 		}
-		for (const { entry: device, where } of entries) {
-			const { unit_id, layout, start = 0, offset = 0 } = device ?? {};
-			const name = device?.name ?? `unit_${unit_id}`;
+		for (const { entry, where } of entries) {
+			const { unit_id, layout, start = 0, offset = 0 } = entry ?? {};
+			const name = entry?.name ?? `unit_${unit_id}`;
 			if (!Number.isInteger(unit_id) || unit_id < 0 || unit_id > 255) {
 				errors.push(`${where}: unit_id must be an integer from 0 to 255`);
 				continue;
@@ -136,12 +136,12 @@ export class Modbus_Emulator {
 				errors.push(`${where}: offset must be a non-negative byte offset`);
 				continue;
 			}
-			if (this.devices.has(name)) {
-				errors.push(`${where}: duplicated device name ${name}`);
+			if (this.blocks.has(name)) {
+				errors.push(`${where}: duplicated block name ${name}`);
 				continue;
 			}
 			const block = new Ldata(layout, name, block_options);
-			this.devices.set(name, block);
+			this.blocks.set(name, block);
 			this.unit_map.attach_unit(unit_id, block, start, offset);
 		}
 	}
@@ -178,11 +178,11 @@ export class Modbus_Emulator {
 		return result;
 	}
 
-	/** A server may only answer units that have a device. */
+	/** A server may only answer units that have a block. */
 	#check_server_units(entries, errors) {
 		for (const { where, options } of entries) {
 			for (const id of options.unit_ids ?? []) {
-				if (!this.unit_map.unit_ids.includes(id)) errors.push(`${where}: unit_ids has unit ${id}, which has no device`);
+				if (!this.unit_map.unit_ids.includes(id)) errors.push(`${where}: unit_ids has unit ${id}, which has no block`);
 			}
 		}
 	}
@@ -197,13 +197,13 @@ export class Modbus_Emulator {
 	}
 
 	/**
-	 * Gets the data block of a device.
+	 * Gets a data block by name.
 	 *
-	 * @param {string} name - The device name.
+	 * @param {string} name - The block name.
 	 * @return {Ldata|undefined}
 	 */
-	device(name) {
-		return this.devices.get(name);
+	block(name) {
+		return this.blocks.get(name);
 	}
 
 	/** Starts all the servers; rejects with the first error. */

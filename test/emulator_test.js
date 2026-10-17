@@ -50,11 +50,11 @@ register_layout([
 	{ layouts: { ONE: [{ name: "a", type: "UInt", offset: 0, init_value: 5 }] } },
 ]);
 
-const make = (devices_and_servers, options) => new Modbus_Emulator(write_file(devices_and_servers), options);
+const make = (blocks_and_servers, options) => new Modbus_Emulator(write_file(blocks_and_servers), options);
 
-const errors_of = (devices_and_servers) => {
+const errors_of = (blocks_and_servers) => {
 	try {
-		make(devices_and_servers);
+		make(blocks_and_servers);
 	} catch (e) {
 		return e.errors;
 	}
@@ -62,9 +62,9 @@ const errors_of = (devices_and_servers) => {
 };
 
 describe("Modbus_Emulator description", () => {
-	test("creates a data block per device and attaches it to its unit", () => {
+	test("creates an Ldata per block and attaches it to its unit", () => {
 		const emulator = make(`
-devices:
+blocks:
   - { name: pump, unit_id: 1, layout: PUMP }
   - { name: setting, unit_id: 1, layout: SETTING, start: 400 }
   - { name: other, unit_id: 2, layout: PUMP }
@@ -74,28 +74,28 @@ servers:
   - { protocol: rtu, port: COM_TEST, baud_rate: 19200 }
 `);
 
-		assert.deepEqual([...emulator.devices.keys()], ["pump", "setting", "other"]);
-		assert.equal(emulator.device("pump").id, 7);
-		assert.equal(emulator.device("setting").limit, 100);
+		assert.deepEqual([...emulator.blocks.keys()], ["pump", "setting", "other"]);
+		assert.equal(emulator.block("pump").id, 7);
+		assert.equal(emulator.block("setting").limit, 100);
 		assert.deepEqual(emulator.unit_map.unit_ids, [1, 2]);
 		assert.equal(emulator.unit_map[1].length, 2);
 		assert.deepEqual(emulator.servers.map((server) => server.protocol), ["tcp", "rtu_over_tcp", "rtu"]);
 	});
 
-	test("a device without a name is named after its unit", () => {
+	test("a block without a name is named after its unit", () => {
 		const emulator = make(`
-devices:
+blocks:
   - { unit_id: 3, layout: PUMP }
 servers:
   - { protocol: tcp, port: 1502 }
 `);
 
-		assert.ok(emulator.device("unit_3"));
+		assert.ok(emulator.block("unit_3"));
 	});
 
 	test("reports every violation at once", () => {
 		const errors = errors_of(`
-devices:
+blocks:
   - { name: a, unit_id: 300, layout: PUMP }
   - { name: b, unit_id: 1, layout: NONE }
   - { name: c, unit_id: 1, layout: PUMP, start: 3 }
@@ -109,15 +109,15 @@ servers:
 
 		assert.equal(errors.length, 7, JSON.stringify(errors));
 		assert.match(errors[0], /servers\[0\]: protocol must be one of/);
-		assert.match(errors.join("\n"), /devices\[0\]: unit_id/);
-		assert.match(errors.join("\n"), /devices\[1\]: unknown layout NONE/);
-		assert.match(errors.join("\n"), /devices\[2\]: start must be an even/);
-		assert.match(errors.join("\n"), /devices\[4\]: duplicated device name d/);
+		assert.match(errors.join("\n"), /blocks\[0\]: unit_id/);
+		assert.match(errors.join("\n"), /blocks\[1\]: unknown layout NONE/);
+		assert.match(errors.join("\n"), /blocks\[2\]: start must be an even/);
+		assert.match(errors.join("\n"), /blocks\[4\]: duplicated block name d/);
 	});
 
 	test("a server answers the units of its unit_ids, the others all units", () => {
 		const emulator = make(`
-devices:
+blocks:
   - { name: a, unit_id: 1, layout: PUMP }
   - { name: b, unit_id: 2, layout: PUMP }
 servers:
@@ -132,9 +132,9 @@ servers:
 		assert.deepEqual([1, 2].map((id) => rtu_over_tcp.is_valid_unit_id(id)), [true, true]);
 	});
 
-	test("unit_ids must be valid and name units that have a device", () => {
+	test("unit_ids must be valid and name units that have a block", () => {
 		const errors = errors_of(`
-devices:
+blocks:
   - { name: a, unit_id: 1, layout: PUMP }
 servers:
   - { protocol: tcp, port: 1502, unit_ids: [] }
@@ -147,13 +147,13 @@ servers:
 		assert.match(errors.join("\n"), /servers\[0\]: unit_ids must be a non-empty list/);
 		assert.match(errors.join("\n"), /servers\[1\]: unit_ids must be a non-empty list/);
 		assert.match(errors.join("\n"), /servers\[2\]: unit_ids must be a non-empty list/);
-		assert.match(errors.join("\n"), /servers\[3\]: unit_ids has unit 7, which has no device/);
+		assert.match(errors.join("\n"), /servers\[3\]: unit_ids has unit 7, which has no block/);
 	});
 
-	test("devices and servers are required", () => {
+	test("blocks and servers are required", () => {
 		assert.deepEqual(errors_of("{}"), [
 			"the root key `servers` must be a non-empty list",
-			"the root key `devices` must be a non-empty list",
+			"the root key `blocks` must be a non-empty list",
 		]);
 	});
 });
@@ -163,11 +163,11 @@ describe("Modbus_Emulator object description", () => {
 
 	test("takes the description as an object", () => {
 		const emulator = new Modbus_Emulator({
-			devices: [{ name: "one", unit_id: 4, layout: "ONE" }],
+			blocks: [{ name: "one", unit_id: 4, layout: "ONE" }],
 			servers: SERVERS,
 		});
 
-		assert.equal(emulator.device("one").a, 5);
+		assert.equal(emulator.block("one").a, 5);
 		assert.deepEqual(emulator.unit_map.unit_ids, [4]);
 	});
 });
@@ -176,7 +176,7 @@ describe("Modbus_Emulator service", () => {
 	async function start(t, options) {
 		const port = await free_port();
 		const emulator = make(`
-devices:
+blocks:
   - { name: pump, unit_id: 1, layout: PUMP }
 servers:
   - { protocol: tcp, host: ${HOST}, port: ${port} }
@@ -186,7 +186,7 @@ servers:
 		const master = new Modbus_Client(HOST, { port, reconnect_time: 0 });
 		master.on("error", () => { });
 		t.after(() => master.disconnect());
-		return { emulator, master, pump: emulator.device("pump") };
+		return { emulator, master, pump: emulator.block("pump") };
 	}
 
 	test("a master reads what the program sets through the tags", async (t) => {
@@ -212,7 +212,7 @@ servers:
 		assert.deepEqual(changes, [[false, true]]);
 	});
 
-	test("each write of a master emits the write event of the device", async (t) => {
+	test("each write of a master emits the write event of the block", async (t) => {
 		const written = [];
 		const { master, pump } = await start(t);
 		pump.on("write", (block) => written.push(block.name));
@@ -222,10 +222,10 @@ servers:
 		assert.deepEqual(written, ["pump"]);
 	});
 
-	test("two servers share the devices and each answers only its units", async (t) => {
+	test("two servers share the blocks and each answers only its units", async (t) => {
 		const [port_a, port_b] = [await free_port(), await free_port()];
 		const emulator = make(`
-devices:
+blocks:
   - { name: a, unit_id: 1, layout: PUMP }
   - { name: b, unit_id: 2, layout: PUMP }
 servers:
@@ -243,9 +243,9 @@ servers:
 		const tcp = connect(port_a, false);
 		const rtu = connect(port_b, true);
 
-		// a write over the TCP server is seen over the other one: one shared device
+		// a write over the TCP server is seen over the other one: one shared block
 		assert.equal(await tcp.write([6, 0, 1], 42, 1), true);
-		assert.equal(emulator.device("a").id, 42);
+		assert.equal(emulator.block("a").id, 42);
 		assert.equal((await rtu.read([3, 0, 1], 1)).readUInt16BE(0), 42);
 		assert.equal((await rtu.read([3, 0, 1], 2)).readUInt16BE(0), 7);
 		await assert.rejects(tcp.read([3, 0, 1], 2), { message: "response error: 11" });
@@ -255,7 +255,7 @@ servers:
 		const [port_a, port_b] = [await free_port(), await free_port()];
 		const warnings = [];
 		const emulator = make(`
-devices:
+blocks:
   - { name: a, unit_id: 1, layout: PUMP }
 servers:
   - { protocol: tcp, host: ${HOST}, port: ${port_a} }
@@ -290,16 +290,16 @@ servers:
 });
 
 describe("layout-data forwarded by the package", () => {
-	test("the forwarded Ldata is the class of the devices, and the functions are the ones in use", () => {
+	test("the forwarded Ldata is the class of the blocks, and the functions are the ones in use", () => {
 		const emulator = make(`
-devices:
+blocks:
   - { name: pump, unit_id: 1, layout: PUMP }
 servers:
   - { protocol: tcp, port: 1502 }
 `);
 
-		assert.ok(emulator.device("pump") instanceof Ldata);
-		assert.equal(get_layout("PUMP"), emulator.device("pump").layout);
+		assert.ok(emulator.block("pump") instanceof Ldata);
+		assert.equal(get_layout("PUMP"), emulator.block("pump").layout);
 		assert.equal(typeof register_layout, "function");
 		assert.equal(typeof io_index_table, "function");
 		assert.equal(typeof render_types, "function");
