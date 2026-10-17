@@ -7,13 +7,13 @@
 
 | File | Responsibility |
 | --- | --- |
-| `src/index.js` | The public interface of the package |
+| `src/index.js` | The public interface of the package, including the forwarded API of layout-data |
 | `src/unit_map.js` | `Unit_Map` and the es-modbus server vector |
 | `src/server.js` | `create_tcp_server`, `create_rtu_server`, and the logging of server events |
 | `src/emulator.js` | `Modbus_Emulator`: reads the description file, builds devices and services |
 | `src/index.d.ts` | Type declarations of the public interface (hand-written) |
 
-Dependencies: `layout-data` (layout compilation and Ldata) and `es-modbus` (`Modbus_Server`). Both are runtime dependencies and stay external. `yaml` is a development dependency and is bundled into the library. They are declared as `dependencies` (not `devDependencies`) because the built library still imports them at run time and its public types reference them; `rolldown.config.js` takes its `external` list from `dependencies`. They are pinned to published versions; for local co-development they may be temporarily linked with pnpm `link:`, but switch them back to version numbers before committing or publishing.
+Dependencies: `layout-data` (layout registration and Ldata) is a runtime dependency and stays external, because the Ldata objects of the devices reach the callers: a copy bundled here would be a second copy next to the caller's own. `src/index.js` forwards the part of its API that callers use (`export ... from "layout-data"`, the types in `src/index.d.ts`), so callers import it from this package and have one copy in the process. `es-modbus` and `yaml` are runtime dependencies too and stay external: this package is a dependency of other packages and not an application, so it does not bundle them. The application that uses it bundles them once, which drops the unused `Modbus_Client` and keeps one copy of the shared code and one `prebuilds` directory of the serial port bindings (they are found next to the bundle that holds them, in the `prebuilds` directory of es-modbus when it is installed as a package). `Modbus_Server` is declared in `src/index.d.ts` as the small interface that callers use, because es-modbus has no declarations. `rolldown.config.js` takes its `external` list from `dependencies`, so it only joins the source files of this package. `layout-data` is pinned to a published version; for local co-development it may be temporarily linked with pnpm `link:`, but switch it back to a version number before committing or publishing.
 
 ## 2. Unit_Map and the Vector
 

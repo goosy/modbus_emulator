@@ -42,6 +42,7 @@ Out of scope: the Modbus master (client), the business logic of a device (implem
 - `unit_ids`: optional, the unit ids a service answers. It defaults to all the units of `unit_map`. A unit id outside the list is answered with exception code 0x0B by es-modbus.
 - `vector`: optional, the vector to serve (the result of `create_vector`). Servers of one unit map can share one. By default it is built from the unit map.
 - `Unit_Map` / `create_vector(unit_map, { logger })`: the unit map and the es-modbus server vector, for callers that do not use a description file (such as a controller) and assemble things themselves.
+- `Ldata`, `Ltag`, `register_layout`, `get_layout`, `io_index_table`, `render_types` and the types of layout-data that go with them (`Layout`, `Layout_Tag`, `Layout_Item`, `Tag_Item`, `Include_Item`, `Layout_Description`, `Layout_Source`, `Registered_Layouts`, `Endian`, `Tag_Type`): the API of [layout-data](https://www.npmjs.com/package/layout-data) that callers use, forwarded as it is. The devices are `Ldata` objects, so this package is the one place the callers take this API from: they do not depend on layout-data themselves, and the process has one copy of it, which `register_layout` needs (it succeeds once per process). The forwarded API follows the version of layout-data this package depends on.
 - `logger`: optional, with `info` / `warn` / `error` methods. When it is absent, or a method is missing, nothing is output.
 
 ## 5. Description File
@@ -75,5 +76,5 @@ servers:
 
 ## 6. Distribution
 
-- Published as an ES module library with the entry `modbus_emulator`. It depends on `layout-data` and `es-modbus`. `yaml` is bundled into the library.
+- Published as an ES module library with the entry `modbus_emulator`. It depends on `layout-data`, `es-modbus` and `yaml`, which stay external: the package is meant to be a dependency of other packages, and the application that uses it bundles them once.
 - Node.js >= 20.11.

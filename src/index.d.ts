@@ -1,5 +1,17 @@
+import type { EventEmitter } from "node:events";
 import type { Ldata, Layout } from "layout-data";
-import type { Modbus_Server } from "es-modbus";
+
+export { Ldata, Ltag, register_layout, get_layout, io_index_table, render_types } from "layout-data";
+export type {
+	Layout, Layout_Tag, Layout_Item, Tag_Item, Include_Item, Layout_Description,
+	Layout_Source, Registered_Layouts, Endian, Tag_Type,
+} from "layout-data";
+
+/** A Modbus slave service (the server of es-modbus, which is bundled into this package). */
+export interface Modbus_Server extends EventEmitter {
+	start(): Promise<unknown>;
+	stop(): Promise<unknown>;
+}
 
 export interface Emulator_Logger {
 	info?: (message: string) => void;

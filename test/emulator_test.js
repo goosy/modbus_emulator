@@ -6,8 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
-import { register_layout } from "layout-data";
-import { Modbus_Emulator } from "../src/index.js";
+import { Modbus_Emulator, Ldata, Ltag, register_layout, get_layout, io_index_table, render_types } from "../src/index.js";
 
 const HOST = "127.0.0.1";
 const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-"));
@@ -287,5 +286,23 @@ servers:
 		t.after(() => retry.disconnect());
 		assert.deepEqual(await retry.read([3, 0, 1], 1), Buffer.from([0, pump.id]));
 		assert.ok(master);
+	});
+});
+
+describe("layout-data forwarded by the package", () => {
+	test("the forwarded Ldata is the class of the devices, and the functions are the ones in use", () => {
+		const emulator = make(`
+devices:
+  - { name: pump, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp, port: 1502 }
+`);
+
+		assert.ok(emulator.device("pump") instanceof Ldata);
+		assert.equal(get_layout("PUMP"), emulator.device("pump").layout);
+		assert.equal(typeof register_layout, "function");
+		assert.equal(typeof io_index_table, "function");
+		assert.equal(typeof render_types, "function");
+		assert.equal(typeof Ltag, "function");
 	});
 });

@@ -6,13 +6,13 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| `src/index.js` | 包的公开接口 |
+| `src/index.js` | 包的公开接口，含转发的 layout-data 接口 |
 | `src/unit_map.js` | `Unit_Map` 与 es-modbus 的服务端 vector |
 | `src/server.js` | `create_tcp_server`、`create_rtu_server`，以及服务事件的日志 |
 | `src/emulator.js` | `Modbus_Emulator`：读取描述文件、建立设备和服务 |
 | `src/index.d.ts` | 公开接口的类型声明（手写） |
 
-依赖：`layout-data`（布局编译与 Ldata）、`es-modbus`（`Modbus_Server`）。两者作为运行时依赖保持外部引用；`yaml` 是开发依赖，打包进库。两者声明为 `dependencies` 而非 `devDependencies`，因为构建产物在运行时仍会 import 它们，且公开类型引用了它们；`rolldown.config.js` 的 `external` 列表取自 `dependencies`。当前锁定为已发布的版本号；本地联调时可临时用 pnpm 的 `link:` 指向本地目录，但提交和发布前必须改回版本号。
+依赖：`layout-data`（布局注册与 Ldata）是运行时依赖，保持外部引用：设备的 Ldata 对象会交到调用方手里，如果在这里打包一份，就会和调用方自己的那份并存。`src/index.js` 转发调用方用到的那部分接口（`export ... from "layout-data"`，类型在 `src/index.d.ts`），调用方从本包导入，进程里就只有一份。`es-modbus` 和 `yaml` 同样是运行时依赖，保持外部引用：本包是给其他包依赖的，不是应用，所以不打包它们。使用本包的应用把它们统一打包一次，未用到的 `Modbus_Client` 随之去掉，共用的代码只有一份，串口原生模块的 `prebuilds` 目录也只有一处（它们在持有它们的包旁边查找；作为包安装时就是 es-modbus 自己的 `prebuilds` 目录）。`Modbus_Server` 在 `src/index.d.ts` 里声明为调用方用到的小接口，因为 es-modbus 没有类型声明。`rolldown.config.js` 的 `external` 列表取自 `dependencies`，所以只把本包自己的源文件合并起来。`layout-data` 锁定为已发布的版本号；本地联调时可临时用 pnpm 的 `link:` 指向本地目录，但提交和发布前必须改回版本号。
 
 ## 2. Unit_Map 与 vector
 
