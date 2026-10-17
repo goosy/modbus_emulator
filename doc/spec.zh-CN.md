@@ -31,12 +31,12 @@ modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 
 ## 4. 接口
 
-- `Modbus_Emulator(source, options)`：主构造方法，`source` 是描述文件的路径（§5），建立设备和服务；
-  - `devices`：设备名到 Ldata 的映射；`device(name)` 取得一个设备；`unit_map`：单元表；`servers`：服务实例；
+- `Modbus_Emulator(source, options)`：主构造方法，`source` 是描述文件的路径（§5），或路径列表：多个文件作为同一份描述一并读取；建立设备和服务；
+  - `devices`：设备名到 Ldata 的映射；`device(name)` 取得一个设备；`unit_map`：单元表；`servers`：服务实例；`layouts`：已注册的布局（按名称，只读）；`vector`：全部服务共用的 vector；
   - `start()` / `stop()`：启动 / 停止全部服务；
   - 描述文件不合法时抛出 `Error`，其 `errors` 属性列出全部违规项。
-- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, logger })`：创建 Modbus TCP 服务；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
-- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, logger })`：创建串口上的 RTU 从站。返回 `Modbus_Server`，`start()` 时才打开串口。
+- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, vector, logger })`：创建 Modbus TCP 服务，`host` 缺省 `0.0.0.0`、`port` 缺省 502，`unit_map` 必填；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
+- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, vector, logger })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
 - `Unit_Map` / `create_vector(unit_map, { logger })`：单元表和 es-modbus 的服务端 vector，供不用描述文件的调用方（如控制器）自行组装。
 - `Ldata`、`Ltag`、`register_layout`、`get_layout`、`io_index_table`、`render_types`，以及与之相配的 layout-data 类型（`Layout`、`Layout_Tag`、`Layout_Item`、`Tag_Item`、`Include_Item`、`Layout_Description`、`Layout_Source`、`Registered_Layouts`、`Endian`、`Tag_Type`）：调用方用到的 [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md) 接口，原样转发。设备就是 `Ldata` 对象，所以调用方只从本包取得这些接口，不再自己依赖 layout-data，进程里也只有一份（`register_layout` 每个进程只能成功调用一次，需要这一点）。转发的接口随本包所依赖的 layout-data 版本而变。
 - `unit_ids`：可选，该服务应答的单元号列表，缺省为 `unit_map` 中的全部单元；列表外的单元号由 es-modbus 应答异常码 0x0B；
@@ -45,7 +45,9 @@ modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 
 ## 5. 描述文件
 
-一个 YAML 1.2 文件，含三部分：
+一个 YAML 1.2 文件，含三部分。这三部分也可以分写在多个文件里（`source` 列表）：各文件的 `devices` 和 `servers` 按文件顺序连接，全部文件的布局一并注册，出错信息会指明所在文件。
+
+文件的根键有 `devices`、`servers`、`layouts_file`，以及 layout-data 的布局与片段（`layouts` 和片段名）。`devices` 和 `servers` 属于本包，不会传给 layout-data；其余部分是布局的来源。
 
 ```yaml
 # 1. layouts and fragments, in the format of layout-data
@@ -69,7 +71,7 @@ servers:
 - `devices[].name` 缺省为 `unit_<unit_id>`，设备名不得重复；`offset`（可选）为设备数据块内的起始字节；
 - `servers[].protocol` 取 `tcp`、`rtu_over_tcp`、`rtu`；`tcp` 和 `rtu_over_tcp` 的 `host` 缺省 `0.0.0.0`、`port` 缺省 502；`rtu` 的 `port` 为串口路径，可带 `baud_rate`、`parity`、`data_bits`、`stop_bits`；
 - `servers[].unit_ids`（可选）：该服务应答的单元号，非空整数列表，取值 0..255，且每个单元号必须有设备；缺省应答全部单元；
-- 布局可以不写在描述里，而用根键 `layouts_file` 指向一个布局文件（相对于描述文件），也可同时给出 `layouts` 和片段，它们一并注册（同名重复定义是错误）；两者都没有时，设备使用进程里已经注册的布局；
+- 布局可以不写在描述里，而用根键 `layouts_file` 指向一个布局文件（相对于写下它的文件），也可同时给出 `layouts` 和片段，它们一并注册（同名重复定义是错误）；两者都没有时，设备使用进程里已经注册的布局；
 - 所有服务共用同一个单元表和同一组设备数据块，`unit_ids` 只决定各服务应答哪些单元。
 
 ## 6. 发布形态

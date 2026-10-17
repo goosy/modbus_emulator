@@ -236,6 +236,8 @@ describe("create_rtu_server", () => {
 
 	test("an invalid serial setting or path throws", () => {
 		assert.throws(() => create_rtu_server("", new Unit_Map()), /Invalid serial port path/);
+		assert.throws(() => create_rtu_server("COM_TEST"), /unit_map is required/);
+		assert.throws(() => create_tcp_server(HOST, 1502), /unit_map is required/);
 		assert.throws(() => create_rtu_server("COM_TEST", new Unit_Map(), { baud_rate: -1 }));
 	});
 });

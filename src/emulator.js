@@ -33,69 +33,91 @@ export class Modbus_Emulator {
 	devices = new Map();
 	/** @type {Object<string, Object>} The compiled layouts by name. */
 	layouts;
-	/** @type {Object<string, Object[]>} The layout fragments by name. */
-	fragments;
 	/** @type {import('es-modbus').Modbus_Server[]} */
 	servers = [];
 
 	/**
-	 * @param {string} source - The path of the emulator description file (YAML). Not public: an object of the
-	 *     same structure is also accepted, for the controller that assembles it; a relative `layouts_file` then
-	 *     is relative to the current directory. `layouts_file` names a layout file, instead of giving the
-	 *     layouts in the description.
+	 * @param {string|string[]} source - The path of an emulator description file (YAML), or a list of paths: the
+	 *     `devices` and `servers` of the files are joined in order, and their layouts are registered together.
+	 *     Not public: an object of the same structure is also accepted in place of a path, for the controller that
+	 *     assembles it; a relative `layouts_file` then is relative to the current directory. `layouts_file` names
+	 *     a layout file, instead of giving the layouts in the description.
 	 * @param {Object} [options]
 	 * @param {{info: Function, warn: Function, error: Function}} [options.logger] - Silent by default.
 	 * @throws {Error} With `errors`, every violation found, when the file is not valid.
 	 */
 	constructor(source, { logger } = {}) {
 		this.logger = normalize_logger(logger);
-		const origin = typeof source === "string" ? source : "emulator description";
-		const fail = (errors) => {
-			const error = new Error(`invalid emulator file ${origin}:\n${errors.join("\n")}`);
+		const sources = Array.isArray(source) ? source : [source];
+		const labels = sources.map((item) => (typeof item === "string" ? item : "emulator description"));
+		const errors = [];
+		const fail = () => {
+			const error = new Error(`invalid emulator file ${labels.join(", ")}:\n${errors.join("\n")}`);
 			error.errors = errors;
 			throw error;
 		};
-		let root = source;
-		if (typeof source === "string") {
-			const doc = parseDocument(readFileSync(source, "utf8"), { version: "1.2" });
-			if (doc.errors.length > 0) fail(doc.errors.map((e) => e.message));
-			root = doc.toJS();
-		}
-		if (root === null || typeof root !== "object" || Array.isArray(root)) fail(["the root must be a mapping"]);
-		const { devices, servers, layouts_file, ...layout_root } = root;
-		const errors = [];
-		let compiled = { layouts: {}, fragments: {} };
-		try {
-			const sources = [];
-			if (layouts_file !== undefined) {
-				if (typeof layouts_file !== "string") throw new Error("layouts_file must be a path");
-				sources.push(resolve(typeof source === "string" ? dirname(source) : ".", layouts_file));
+		// with several sources, a violation names its source
+		const prefixes = labels.map((label) => (sources.length > 1 ? `${label}: ` : ""));
+		const device_entries = [];
+		const server_entries = [];
+		const layout_sources = [];
+		for (const [index, item] of sources.entries()) {
+			const prefix = prefixes[index];
+			let root = item;
+			if (typeof item === "string") {
+				const doc = parseDocument(readFileSync(item, "utf8"), { version: "1.2" });
+				if (doc.errors.length > 0) {
+					errors.push(...doc.errors.map((e) => prefix + e.message));
+					continue;
+				}
+				root = doc.toJS();
 			}
-			if (Object.keys(layout_root).length > 0) sources.push(layout_root);
+			if (root === null || typeof root !== "object" || Array.isArray(root)) {
+				errors.push(`${prefix}the root must be a mapping`);
+				continue;
+			}
+			const { devices, servers, layouts_file, ...layout_root } = root;
+			for (const [key, list, entries] of [["devices", devices, device_entries], ["servers", servers, server_entries]]) {
+				if (list === undefined) continue;
+				if (!Array.isArray(list)) errors.push(`${prefix}the root key \`${key}\` must be a list`);
+				else for (const entry of list) entries.push({ entry, where: `${prefix}${key}[${entries.length}]` });
+			}
+			try {
+				if (layouts_file !== undefined) {
+					if (typeof layouts_file !== "string") throw new Error("layouts_file must be a path");
+					layout_sources.push(resolve(typeof item === "string" ? dirname(item) : ".", layouts_file));
+				}
+			} catch (e) {
+				errors.push(prefix + e.message);
+			}
+			if (Object.keys(layout_root).length > 0) layout_sources.push(layout_root);
+		}
+		if (errors.length > 0) fail();
+
+		let compiled = { layouts: {} };
+		try {
 			// without sources the devices use the layouts that are already registered
-			if (sources.length > 0) compiled = register_layout(sources);
+			if (layout_sources.length > 0) compiled = register_layout(layout_sources);
 		} catch (e) {
 			errors.push(...(e.errors ?? [e.message]));
 		}
 		this.layouts = compiled.layouts;
-		this.fragments = compiled.fragments;
 
-		const server_entries = this.#read_servers(servers, errors);
-		this.#read_devices(devices, errors);
-		this.#check_server_units(server_entries, errors);
-		if (errors.length > 0) fail(errors);
+		const checked_servers = this.#read_servers(server_entries, errors);
+		this.#read_devices(device_entries, errors);
+		this.#check_server_units(checked_servers, errors);
+		if (errors.length > 0) fail();
 
 		this.vector = create_vector(this.unit_map, { logger: this.logger });
-		for (const { options } of server_entries) this.servers.push(this.#create_server(options));
+		for (const { options } of checked_servers) this.servers.push(this.#create_server(options));
 	}
 
-	#read_devices(devices, errors, block_options) {
-		if (!Array.isArray(devices) || devices.length === 0) {
+	#read_devices(entries, errors, block_options) {
+		if (entries.length === 0) {
 			errors.push("the root key `devices` must be a non-empty list");
 			return;
 		}
-		for (const [index, device] of devices.entries()) {
-			const where = `devices[${index}]`;
+		for (const { entry: device, where } of entries) {
 			const { unit_id, layout, start = 0, offset = 0 } = device ?? {};
 			const name = device?.name ?? `unit_${unit_id}`;
 			if (!Number.isInteger(unit_id) || unit_id < 0 || unit_id > 255) {
@@ -124,14 +146,13 @@ export class Modbus_Emulator {
 		}
 	}
 
-	#read_servers(servers, errors) {
-		if (!Array.isArray(servers) || servers.length === 0) {
+	#read_servers(entries, errors) {
+		if (entries.length === 0) {
 			errors.push("the root key `servers` must be a non-empty list");
 			return [];
 		}
 		const result = [];
-		for (const [index, server] of servers.entries()) {
-			const where = `servers[${index}]`;
+		for (const { entry: server, where } of entries) {
 			const { protocol } = server ?? {};
 			if (!PROTOCOLS.includes(protocol)) {
 				errors.push(`${where}: protocol must be one of ${PROTOCOLS.join(", ")}`);

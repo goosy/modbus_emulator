@@ -13,6 +13,15 @@ export interface Modbus_Server extends EventEmitter {
 	stop(): Promise<unknown>;
 }
 
+/** The es-modbus server vector over a unit map (see `create_vector`). */
+export interface Modbus_Vector {
+	get_holding_register(addr: number, unit_id: number): number;
+	get_input_register(addr: number, unit_id: number): number;
+	set_register(addr: number, value: number, unit_id: number): void;
+	get_coil(addr: number, unit_id: number): boolean;
+	set_coil(addr: number, value: boolean, unit_id: number): void;
+}
+
 export interface Emulator_Logger {
 	info?: (message: string) => void;
 	warn?: (message: string) => void;
@@ -22,7 +31,7 @@ export interface Emulator_Logger {
 export interface Server_Options {
 	rtu?: boolean;
 	unit_ids?: number[];
-	vector?: Record<string, Function>;
+	vector?: Modbus_Vector;
 	logger?: Emulator_Logger;
 }
 
@@ -32,7 +41,7 @@ export interface Serial_Options {
 	data_bits?: number;
 	stop_bits?: number;
 	unit_ids?: number[];
-	vector?: Record<string, Function>;
+	vector?: Modbus_Vector;
 	logger?: Emulator_Logger;
 }
 
@@ -42,19 +51,18 @@ export class Unit_Map {
 	attach_unit(unit_id: number, block: Ldata, start?: number, offset?: number): void;
 }
 
-export function create_vector(unit_map: Unit_Map, options?: { logger?: Emulator_Logger }): Record<string, Function>;
-export function create_tcp_server(host?: string, port?: number, unit_map?: Unit_Map, options?: Server_Options): Modbus_Server;
-export function create_rtu_server(path: string, unit_map?: Unit_Map, options?: Serial_Options): Modbus_Server;
+export function create_vector(unit_map: Unit_Map, options?: { logger?: Emulator_Logger }): Modbus_Vector;
+export function create_tcp_server(host: string | undefined, port: number | undefined, unit_map: Unit_Map, options?: Server_Options): Modbus_Server;
+export function create_rtu_server(path: string, unit_map: Unit_Map, options?: Serial_Options): Modbus_Server;
 
 export class Modbus_Emulator {
-	constructor(yaml_path: string, options?: {
+	constructor(source: string | string[], options?: {
 		logger?: Emulator_Logger;
 	});
 	unit_map: Unit_Map;
-	vector: Record<string, Function>;
+	vector: Modbus_Vector;
 	devices: Map<string, Ldata>;
 	layouts: Record<string, Layout>;
-	fragments: Record<string, Record<string, any>[]>;
 	servers: Modbus_Server[];
 	device(name: string): Ldata | undefined;
 	start(): Promise<void>;

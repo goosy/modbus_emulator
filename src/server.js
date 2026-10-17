@@ -46,8 +46,10 @@ function log_events(server, label, logger) {
  * @param {{info: Function, warn: Function, error: Function}} [options.logger] - Silent by default.
  * @return {import('es-modbus').Modbus_Server} The server instance.
  */
-export function create_tcp_server(host = "0.0.0.0", port = 502, unit_map = {}, { rtu = false, unit_ids = unit_map.unit_ids, vector: _vector, logger: _logger } = {}) {
+export function create_tcp_server(host = "0.0.0.0", port = 502, unit_map, { rtu = false, unit_ids: _unit_ids, vector: _vector, logger: _logger } = {}) {
 	const logger = normalize_logger(_logger);
+	if (unit_map === undefined || unit_map === null) throw new Error("unit_map is required");
+	const unit_ids = _unit_ids ?? unit_map.unit_ids;
 	const vector = _vector ?? create_vector(unit_map, { logger });
 	const server = new Modbus_Server(vector, { host, port, rtu, unit_id: unit_ids });
 	log_events(server, `${rtu ? "rtu" : "modbus"}://${host}:${port}`, logger);
@@ -70,9 +72,11 @@ export function create_tcp_server(host = "0.0.0.0", port = 502, unit_map = {}, {
  * @param {{info: Function, warn: Function, error: Function}} [options.logger] - Silent by default.
  * @return {import('es-modbus').Modbus_Server} The server instance.
  */
-export function create_rtu_server(path, unit_map = {}, { unit_ids = unit_map.unit_ids, vector: _vector, logger: _logger, ...serial } = {}) {
+export function create_rtu_server(path, unit_map, { unit_ids: _unit_ids, vector: _vector, logger: _logger, ...serial } = {}) {
 	const logger = normalize_logger(_logger);
 	if (typeof path !== "string" || path === "") throw new Error(`Invalid serial port path: ${path}`);
+	if (unit_map === undefined || unit_map === null) throw new Error("unit_map is required");
+	const unit_ids = _unit_ids ?? unit_map.unit_ids;
 	const { baud_rate, parity, data_bits, stop_bits } = serial;
 	const vector = _vector ?? create_vector(unit_map, { logger });
 	const server = new Modbus_Server(vector, {
