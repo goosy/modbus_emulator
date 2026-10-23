@@ -35,7 +35,8 @@ Out of scope: the Modbus master (client), the business logic of a device (implem
 
 - `Modbus_Emulator(source, options)`: the main constructor. `source` is the path of a description file (section 5), or a list of paths: the files are read together as one description. It builds the blocks and the services.
   - `blocks`: a map from block names to Ldata. `block(name)` gets one block. `unit_map`: the unit map. `servers`: the server instances. `layouts`: the registered layouts by name (read-only). `vector`: the vector shared by all the servers.
-  - `start()` / `stop()`: start / stop all services.
+  - `start(options)`: starts all services. By default it is all or nothing: when any service fails to start, all services are stopped, so a resolved `start()` means that all of them run and a rejected one that none runs. With `{ partial: true }` it starts what it can, and the services that started keep running. In both modes a failure rejects with an `AggregateError` that lists every failed service: each item is an `Error` whose message names the service, such as `servers[1] (modbus://0.0.0.0:503): ...`, with the original error as its `cause`.
+  - `stop()`: stops all services.
   - An invalid description file throws an `Error` whose `errors` property lists all violations. A file that cannot be read is one of them.
 - `create_tcp_server(host, port, unit_map, { rtu, unit_ids, vector, logger })`: creates a Modbus TCP service. `host` defaults to `0.0.0.0` and `port` to 502; `unit_map` is required. With `rtu: true` it uses RTU frames on the TCP socket (RTU over TCP). It returns the es-modbus `Modbus_Server`, not started.
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, vector, logger })`: creates an RTU slave on a serial port. `unit_map` is required. The defaults are 9600, `none`, 8 and 1 for `baud_rate`, `parity`, `data_bits` and `stop_bits`. It returns a `Modbus_Server`, and the port is opened only at `start()`.

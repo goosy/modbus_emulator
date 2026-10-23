@@ -1,9 +1,9 @@
 ---
 id: 4rk8vyme
 opened: 2026-10-17T23:58:05.000Z
-closed:
+closed: 2026-10-23T14:43:50.000Z
 title: 启动失败后部分服务仍在运行，且只报告第一个错误
-status: accepted        # open | accepted | fixed | rejected | wontfix
+status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:

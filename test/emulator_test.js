@@ -278,6 +278,58 @@ servers:
 		return { emulator, master, pump: emulator.block("pump") };
 	}
 
+	/** Whether a TCP port of HOST accepts a connection. */
+	function is_listening(port) {
+		return new Promise((resolve) => {
+			const socket = net.connect({ host: HOST, port });
+			socket.on("connect", () => {
+				socket.destroy();
+				resolve(true);
+			});
+			socket.on("error", () => resolve(false));
+		});
+	}
+
+	/** An emulator of two servers, whose second one cannot listen on its port, already taken. */
+	async function emulator_with_taken_port(t) {
+		const [free, taken] = [await free_port(), await free_port()];
+		const holder = net.createServer();
+		await new Promise((resolve) => holder.listen(taken, HOST, resolve));
+		t.after(() => new Promise((resolve) => holder.close(resolve)));
+		const emulator = make(`
+blocks:
+  - { name: pump, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp, host: ${HOST}, port: ${free} }
+  - { protocol: tcp, host: ${HOST}, port: ${taken} }
+`);
+		t.after(() => emulator.stop());
+		return { emulator, free, taken };
+	}
+
+	/** Checks the AggregateError of a start that failed on the taken port. */
+	function check_start_error(e, taken) {
+		assert.ok(e instanceof AggregateError);
+		assert.equal(e.errors.length, 1);
+		assert.ok(e.errors[0].message.startsWith(`servers[1] (modbus://${HOST}:${taken}): `), e.errors[0].message);
+		assert.equal(e.errors[0].cause.code, "EADDRINUSE");
+		return true;
+	}
+
+	test("a failed start stops all the servers", async (t) => {
+		const { emulator, free, taken } = await emulator_with_taken_port(t);
+
+		await assert.rejects(emulator.start(), (e) => check_start_error(e, taken));
+		assert.equal(await is_listening(free), false);
+	});
+
+	test("a failed partial start leaves the started servers running", async (t) => {
+		const { emulator, free, taken } = await emulator_with_taken_port(t);
+
+		await assert.rejects(emulator.start({ partial: true }), (e) => check_start_error(e, taken));
+		assert.equal(await is_listening(free), true);
+	});
+
 	test("a master reads what the program sets through the tags", async (t) => {
 		const { master, pump } = await start(t);
 

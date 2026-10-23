@@ -65,6 +65,10 @@ export class Modbus_Emulator {
 	layouts: Record<string, Layout>;
 	servers: Modbus_Server[];
 	block(name: string): Ldata | undefined;
-	start(): Promise<void>;
+	/**
+	 * Starts all the servers. When any fails, rejects with an `AggregateError` of every failure, after stopping all
+	 * the servers, or with `partial: true` leaving the started ones running.
+	 */
+	start(options?: { partial?: boolean }): Promise<void>;
 	stop(): Promise<void>;
 }

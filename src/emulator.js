@@ -23,6 +23,12 @@ const SERVER_KEYS = {
 	rtu: ["protocol", "unit_ids", "port", "baud_rate", "parity", "data_bits", "stop_bits"],
 };
 
+/** The address of a server in its errors: modbus://host:port, rtu://host:port or serial://path. */
+function address_of({ protocol, host = "0.0.0.0", port = 502 }) {
+	if (protocol === "rtu") return `serial://${port}`;
+	return `${protocol === "rtu_over_tcp" ? "rtu" : "modbus"}://${host}:${port}`;
+}
+
 /** Reports each key of a mapping entry that is not in the allowed list. */
 function check_keys(entry, allowed, where, errors) {
 	if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return;
@@ -50,6 +56,8 @@ export class Modbus_Emulator {
 	layouts;
 	/** @type {import('es-modbus').Modbus_Server[]} */
 	servers = [];
+	/** @type {string[]} The labels of the servers, e.g. `servers[1] (modbus://0.0.0.0:503)`. */
+	#labels = [];
 
 	/**
 	 * @param {string|string[]} source - The path of an emulator description file (YAML), or a list of paths: the
@@ -129,7 +137,10 @@ export class Modbus_Emulator {
 		if (errors.length > 0) fail();
 
 		this.vector = create_vector(this.unit_map, { logger: this.logger });
-		for (const { options } of checked_servers) this.servers.push(this.#create_server(options));
+		for (const { where, options } of checked_servers) {
+			this.servers.push(this.#create_server(options));
+			this.#labels.push(`${where} (${address_of(options)})`);
+		}
 	}
 
 	/**
@@ -248,9 +259,24 @@ export class Modbus_Emulator {
 		return this.blocks.get(name);
 	}
 
-	/** Starts all the servers; rejects with the first error. */
-	async start() {
-		await Promise.all(this.servers.map((server) => server.start()));
+	/**
+	 * Starts all the servers. By default it is all or nothing: when any server fails, all the servers are stopped.
+	 *
+	 * @param {Object} [options]
+	 * @param {boolean} [options.partial=false] - Leave the servers that started running when others fail.
+	 * @throws {AggregateError} Every failure, each an Error that names its server, with the original error as `cause`.
+	 */
+	async start({ partial = false } = {}) {
+		const results = await Promise.allSettled(this.servers.map((server) => server.start()));
+		const failures = [];
+		for (const [index, result] of results.entries()) {
+			if (result.status === "fulfilled") continue;
+			const { reason } = result;
+			failures.push(new Error(`${this.#labels[index]}: ${reason?.message ?? reason}`, { cause: reason }));
+		}
+		if (failures.length === 0) return;
+		if (!partial) await this.stop();
+		throw new AggregateError(failures, `${failures.length} of ${this.servers.length} servers failed to start`);
 	}
 
 	/** Stops all the servers. */
