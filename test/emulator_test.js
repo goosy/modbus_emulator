@@ -150,6 +150,95 @@ servers:
 		assert.match(errors.join("\n"), /servers\[3\]: unit_ids has unit 7, which has no block/);
 	});
 
+	test("offset must be even", () => {
+		const errors = errors_of(`
+blocks:
+  - { name: a, unit_id: 1, layout: PUMP, offset: 1 }
+servers:
+  - { protocol: tcp, port: 1502 }
+`);
+
+		assert.deepEqual(errors, ["blocks[0]: offset must be an even non-negative byte offset"]);
+	});
+
+	test("an unknown key of a block or a server is an error", () => {
+		const errors = errors_of(`
+blocks:
+  - { name: a, unitid: 1, unit_id: 1, layout: PUMP }
+  - { name: b, unit_id: 2, layout: PUMP, sart: 4 }
+servers:
+  - { protocol: tcp, port: 1502, baud_rate: 9600 }
+  - { protocol: rtu, port: COM_TEST, host: 0.0.0.0 }
+`);
+
+		assert.deepEqual(errors, [
+			"servers[0]: unknown key baud_rate",
+			"servers[1]: unknown key host",
+			"blocks[0]: unknown key unitid",
+			"blocks[1]: unknown key sart",
+		]);
+	});
+
+	test("a TCP port is from 0 to 65535", () => {
+		const errors = errors_of(`
+blocks:
+  - { name: a, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp, port: 99999 }
+  - { protocol: rtu_over_tcp, port: -1 }
+`);
+
+		assert.equal(errors.length, 2, JSON.stringify(errors));
+		assert.match(errors.join("\n"), /servers\[0\]: port must be a TCP port number from 0 to 65535/);
+		assert.match(errors.join("\n"), /servers\[1\]: port must be a TCP port number from 0 to 65535/);
+	});
+
+	test("two servers may not use the same address or serial port", () => {
+		const errors = errors_of(`
+blocks:
+  - { name: a, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp }
+  - { protocol: rtu_over_tcp, host: 0.0.0.0, port: 502 }
+  - { protocol: rtu, port: COM_TEST }
+  - { protocol: rtu, port: COM_TEST }
+`);
+
+		assert.deepEqual(errors, [
+			"servers[1]: port 0.0.0.0:502 is already used by servers[0]",
+			"servers[3]: port COM_TEST is already used by servers[2]",
+		]);
+	});
+
+	test("port 0 and the same port on different hosts may repeat", () => {
+		const emulator = make(`
+blocks:
+  - { name: a, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp, port: 0 }
+  - { protocol: tcp, port: 0 }
+  - { protocol: tcp, host: 127.0.0.1, port: 1502 }
+  - { protocol: tcp, host: 0.0.0.0, port: 1502 }
+`);
+
+		assert.equal(emulator.servers.length, 4);
+	});
+
+	test("a file that cannot be read is reported in errors", () => {
+		const missing = join(dir, "missing.yaml");
+		const file = write_file(`
+blocks:
+  - { name: a, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp, port: 1502 }
+`);
+
+		assert.throws(() => new Modbus_Emulator(missing), (e) => e.errors.length === 1
+			&& e.errors[0].startsWith("cannot read the file: ENOENT"));
+		assert.throws(() => new Modbus_Emulator([file, missing]), (e) => e.errors.length === 1
+			&& e.errors[0].startsWith(`${missing}: cannot read the file: ENOENT`));
+	});
+
 	test("blocks and servers are required", () => {
 		assert.deepEqual(errors_of("{}"), [
 			"the root key `servers` must be a non-empty list",

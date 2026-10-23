@@ -1,9 +1,9 @@
 ---
 id: 0vdz2x70
 opened: 2026-10-17T23:58:07.000Z
-closed:
+closed: 2026-10-23T14:07:46.000Z
 title: 块的 offset 没有要求偶数
-status: open        # open | accepted | fixed | rejected | wontfix
+status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
@@ -27,3 +27,5 @@ layout-data 已拒绝长度不是整寄存器的布局，所以问题只来自 `
 校验要求 `offset` 为非负偶数，同步 spec。
 
 ## 裁定
+
+问题成立，按解决提案修复：奇数 `offset` 会使主站读到块外，校验要求它为非负偶数。

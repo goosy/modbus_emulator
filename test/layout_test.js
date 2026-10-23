@@ -11,7 +11,7 @@ import { Modbus_Emulator } from "../src/index.js";
 const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-layout-"));
 const SERVERS = [{ protocol: "tcp", port: 1502 }];
 
-test("layout errors are reported with the others", () => {
+test("layout errors are reported with the others, without an unknown layout per block", () => {
 	assert.throws(() => new Modbus_Emulator({
 		layouts: {
 			BAD: [
@@ -19,9 +19,11 @@ test("layout errors are reported with the others", () => {
 				{ name: "a", type: "UInt", offset: 16, init_value: 0 },
 			],
 		},
-		blocks: [{ name: "a", unit_id: 1, layout: "BAD" }],
+		blocks: [{ name: "a", unit_id: 1, layout: "BAD" }, { name: "b", unit_id: 300, layout: "BAD" }],
 		servers: SERVERS,
-	}), (e) => e.errors.some((m) => m.includes("duplicated name")) && e.errors.some((m) => m.includes("unknown layout BAD")));
+	}), (e) => e.errors.some((m) => m.includes("duplicated name"))
+		&& e.errors.some((m) => m.includes("blocks[1]: unit_id"))
+		&& !e.errors.some((m) => m.includes("unknown layout")));
 });
 
 test("layouts_file is relative to the description file and may be combined with layouts", () => {

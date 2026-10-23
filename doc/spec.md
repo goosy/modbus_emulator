@@ -36,7 +36,7 @@ Out of scope: the Modbus master (client), the business logic of a device (implem
 - `Modbus_Emulator(source, options)`: the main constructor. `source` is the path of a description file (section 5), or a list of paths: the files are read together as one description. It builds the blocks and the services.
   - `blocks`: a map from block names to Ldata. `block(name)` gets one block. `unit_map`: the unit map. `servers`: the server instances. `layouts`: the registered layouts by name (read-only). `vector`: the vector shared by all the servers.
   - `start()` / `stop()`: start / stop all services.
-  - An invalid description file throws an `Error` whose `errors` property lists all violations.
+  - An invalid description file throws an `Error` whose `errors` property lists all violations. A file that cannot be read is one of them.
 - `create_tcp_server(host, port, unit_map, { rtu, unit_ids, vector, logger })`: creates a Modbus TCP service. `host` defaults to `0.0.0.0` and `port` to 502; `unit_map` is required. With `rtu: true` it uses RTU frames on the TCP socket (RTU over TCP). It returns the es-modbus `Modbus_Server`, not started.
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, vector, logger })`: creates an RTU slave on a serial port. `unit_map` is required. The defaults are 9600, `none`, 8 and 1 for `baud_rate`, `parity`, `data_bits` and `stop_bits`. It returns a `Modbus_Server`, and the port is opened only at `start()`.
 - `unit_ids`: optional, the unit ids a service answers. It defaults to all the units of `unit_map`. A unit id outside the list is answered with exception code 0x0B by es-modbus.
@@ -70,8 +70,10 @@ servers:
   - { protocol: rtu, port: COM3, baud_rate: 9600, parity: none }
 ```
 
-- `blocks[].name` defaults to `unit_<unit_id>`, and block names must be unique. `offset` (optional) is the start byte inside the block.
-- `servers[].protocol` is one of `tcp`, `rtu_over_tcp`, `rtu`. For `tcp` and `rtu_over_tcp`, `host` defaults to `0.0.0.0` and `port` to 502. For `rtu`, `port` is the serial port path, with optional `baud_rate`, `parity`, `data_bits`, `stop_bits`.
+- `blocks[].name` defaults to `unit_<unit_id>`, and block names must be unique. `offset` (optional) is the start byte inside the block, even.
+- `servers[].protocol` is one of `tcp`, `rtu_over_tcp`, `rtu`. For `tcp` and `rtu_over_tcp`, `host` defaults to `0.0.0.0` and `port` to 502; `port` is an integer from 0 to 65535 (0: chosen by the system). For `rtu`, `port` is the serial port path, with optional `baud_rate`, `parity`, `data_bits`, `stop_bits`.
+- Two `tcp` / `rtu_over_tcp` services may not use the same `host` and `port`, except port 0; services on different hosts may use the same port. Two `rtu` services may not use the same serial port path.
+- A block entry has only the keys `name`, `unit_id`, `layout`, `start`, `offset`. A service entry has only `protocol`, `unit_ids`, and `host`, `port` for `tcp` / `rtu_over_tcp`, or `port`, `baud_rate`, `parity`, `data_bits`, `stop_bits` for `rtu`. Another key is an error. The root keys are not checked: a key other than `blocks`, `servers` and `layouts_file` is a fragment name of layout-data.
 - `servers[].unit_ids` (optional) are the unit ids the service answers: a non-empty list of integers from 0 to 255, each of which must have a block. By default the service answers all units.
 - The layouts may be kept out of the description, or split: the root key `layouts_file` names a layout file (relative to the file that names it); `layouts` and fragments may be given as well, and all of them are registered together (a name defined twice is an error). When neither is given, the blocks use the layouts already registered in the process.
 - All services share one unit map and the same data blocks. `unit_ids` only decides which units each service answers.

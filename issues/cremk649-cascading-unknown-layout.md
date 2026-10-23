@@ -1,9 +1,9 @@
 ---
 id: cremk649
 opened: 2026-10-17T23:58:12.000Z
-closed:
+closed: 2026-10-23T14:07:46.000Z
 title: 布局错误引发连带的 unknown layout 错误
-status: open        # open | accepted | fixed | rejected | wontfix
+status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
@@ -21,3 +21,5 @@ decision_title: 裁定
 布局注册失败时，不再对每个块追加连带的 `unknown layout` 错误。
 
 ## 裁定
+
+问题成立，按解决提案修复：布局注册失败时不检查数据块的布局是否存在，数据块的其他检查照常进行。

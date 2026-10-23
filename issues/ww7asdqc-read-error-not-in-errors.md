@@ -1,9 +1,9 @@
 ---
 id: ww7asdqc
 opened: 2026-10-17T23:58:10.000Z
-closed:
+closed: 2026-10-23T14:07:46.000Z
 title: 读取错误不在 errors 中
-status: open        # open | accepted | fixed | rejected | wontfix
+status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
@@ -23,3 +23,5 @@ decision_title: 裁定
 文件不存在等读取错误也收入 `errors`。
 
 ## 裁定
+
+问题成立，按解决提案修复：读取错误以 `cannot read the file: <原始消息>` 收入 `errors`，多个文件时带文件名前缀。

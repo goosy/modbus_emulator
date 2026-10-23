@@ -15,6 +15,21 @@ function is_registered(name) {
 }
 
 const PROTOCOLS = ["tcp", "rtu_over_tcp", "rtu"];
+const BLOCK_KEYS = ["name", "unit_id", "layout", "start", "offset"];
+const TCP_SERVER_KEYS = ["protocol", "unit_ids", "host", "port"];
+const SERVER_KEYS = {
+	tcp: TCP_SERVER_KEYS,
+	rtu_over_tcp: TCP_SERVER_KEYS,
+	rtu: ["protocol", "unit_ids", "port", "baud_rate", "parity", "data_bits", "stop_bits"],
+};
+
+/** Reports each key of a mapping entry that is not in the allowed list. */
+function check_keys(entry, allowed, where, errors) {
+	if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return;
+	for (const key of Object.keys(entry)) {
+		if (!allowed.includes(key)) errors.push(`${where}: unknown key ${key}`);
+	}
+}
 
 /**
  * A Modbus device emulator: slave services over the data blocks described by
@@ -65,7 +80,14 @@ export class Modbus_Emulator {
 			const prefix = prefixes[index];
 			let root = item;
 			if (typeof item === "string") {
-				const doc = parseDocument(readFileSync(item, "utf8"), { version: "1.2" });
+				let text;
+				try {
+					text = readFileSync(item, "utf8");
+				} catch (e) {
+					errors.push(`${prefix}cannot read the file: ${e.message}`);
+					continue;
+				}
+				const doc = parseDocument(text, { version: "1.2" });
 				if (doc.errors.length > 0) {
 					errors.push(...doc.errors.map((e) => prefix + e.message));
 					continue;
@@ -91,16 +113,18 @@ export class Modbus_Emulator {
 		if (errors.length > 0) fail();
 
 		let compiled = { layouts: {} };
+		let layouts_failed = false;
 		try {
 			// without sources the blocks use the layouts that are already registered
 			if (layout_sources.length > 0) compiled = register_layout(layout_sources);
 		} catch (e) {
 			errors.push(...(e.errors ?? [e.message]));
+			layouts_failed = true;
 		}
 		this.layouts = compiled.layouts;
 
 		const checked_servers = this.#read_servers(server_entries, errors);
-		this.#read_blocks(block_entries, errors);
+		this.#read_blocks(block_entries, errors, layouts_failed);
 		this.#check_server_units(checked_servers, errors);
 		if (errors.length > 0) fail();
 
@@ -108,32 +132,37 @@ export class Modbus_Emulator {
 		for (const { options } of checked_servers) this.servers.push(this.#create_server(options));
 	}
 
-	#read_blocks(entries, errors) {
+	/**
+	 * @param {boolean} layouts_failed - The layout registration failed, so no layout is registered: an unknown
+	 *     layout is not reported, as every block would repeat it.
+	 */
+	#read_blocks(entries, errors, layouts_failed) {
 		if (entries.length === 0) {
 			errors.push("the root key `blocks` must be a non-empty list");
 			return;
 		}
 		for (const { entry, where } of entries) {
+			check_keys(entry, BLOCK_KEYS, where, errors);
 			const { unit_id, layout, start = 0, offset = 0 } = entry ?? {};
 			const name = entry?.name ?? `unit_${unit_id}`;
 			if (!Number.isInteger(unit_id) || unit_id < 0 || unit_id > 255) {
 				errors.push(`${where}: unit_id must be an integer from 0 to 255`);
 				continue;
 			}
-			if (!is_registered(layout)) {
-				errors.push(`${where}: unknown layout ${layout}`);
-				continue;
-			}
 			if (!Number.isInteger(start) || start < 0 || start % 2 !== 0) {
 				errors.push(`${where}: start must be an even non-negative byte offset`);
 				continue;
 			}
-			if (!Number.isInteger(offset) || offset < 0) {
-				errors.push(`${where}: offset must be a non-negative byte offset`);
+			if (!Number.isInteger(offset) || offset < 0 || offset % 2 !== 0) {
+				errors.push(`${where}: offset must be an even non-negative byte offset`);
 				continue;
 			}
 			if (this.blocks.has(name)) {
 				errors.push(`${where}: duplicated block name ${name}`);
+				continue;
+			}
+			if (!is_registered(layout)) {
+				if (!layouts_failed) errors.push(`${where}: unknown layout ${layout}`);
 				continue;
 			}
 			const block = new Ldata(layout, name);
@@ -148,20 +177,37 @@ export class Modbus_Emulator {
 			return [];
 		}
 		const result = [];
+		// the earlier server of each TCP address or serial port path
+		const used = new Map();
 		for (const { entry: server, where } of entries) {
 			const { protocol } = server ?? {};
 			if (!PROTOCOLS.includes(protocol)) {
 				errors.push(`${where}: protocol must be one of ${PROTOCOLS.join(", ")}`);
 				continue;
 			}
+			check_keys(server, SERVER_KEYS[protocol], where, errors);
+			let address;
 			if (protocol === "rtu") {
 				if (typeof server.port !== "string" || server.port === "") {
 					errors.push(`${where}: port must be a serial device path`);
 					continue;
 				}
-			} else if (!Number.isInteger(server.port ?? 502)) {
-				errors.push(`${where}: port must be a TCP port number`);
-				continue;
+				address = server.port;
+			} else {
+				const { host = "0.0.0.0", port = 502 } = server;
+				if (!Number.isInteger(port) || port < 0 || port > 65535) {
+					errors.push(`${where}: port must be a TCP port number from 0 to 65535`);
+					continue;
+				}
+				// port 0 is chosen by the system, a different one each time
+				if (port !== 0) address = `${host}:${port}`;
+			}
+			if (address !== undefined) {
+				if (used.has(address)) {
+					errors.push(`${where}: port ${address} is already used by ${used.get(address)}`);
+					continue;
+				}
+				used.set(address, where);
 			}
 			const { unit_ids } = server;
 			if (unit_ids !== undefined && !(Array.isArray(unit_ids) && unit_ids.length > 0
