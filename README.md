@@ -38,7 +38,7 @@ servers:
 ```js
 import { Modbus_Emulator } from "modbus_emulator";
 
-const emulator = new Modbus_Emulator("emulator.yaml", { logger: console });
+const emulator = new Modbus_Emulator("emulator.yaml");
 await emulator.start();
 
 const pump = emulator.block("pump_1"); // a Ldata of layout-data
@@ -52,14 +52,27 @@ An invalid description file throws an `Error`; its `errors` property lists all v
 ### Without a description file
 
 ```js
-import { Unit_Map, create_tcp_server } from "modbus_emulator";
+import { Unit_Map, Ldata, register_layout, create_tcp_server } from "modbus_emulator";
+
+// once per process
+register_layout({
+	layouts: {
+		PUMP: [
+			{ name: "id", type: "UInt", offset: 0, init_value: 1 },
+			{ name: "pressure", type: "Real", offset: 32, init_value: 1.5 },
+		],
+	},
+});
+const pump = new Ldata("PUMP", "pump_1");
 
 const unit_map = new Unit_Map();
-unit_map.attach_unit(1, block, 0, 0);
+unit_map.attach_unit(1, pump, 0, 0);
 
-const server = create_tcp_server("0.0.0.0", 1502, unit_map, { logger: console });
+const server = create_tcp_server("0.0.0.0", 1502, unit_map);
 await server.start();
 ```
+
+Take `Ldata` and `register_layout` from this package rather than from layout-data, so that there is one copy of layout-data in the process.
 
 `create_rtu_server(path, unit_map, options)` creates an RTU slave on a serial port. `create_vector(unit_map, { logger })` returns the es-modbus server vector for fully custom assembly.
 

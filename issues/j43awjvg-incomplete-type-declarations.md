@@ -16,10 +16,11 @@ decision_title: 裁定
 
 - `layouts`、`blocks` 应为只读，声明中可赋值；
 - `Modbus_Server` 接口缺少实际在用的 `port`、`protocol`、`is_valid_unit_id`；
-- `src/index.d.ts` 中 `Modbus_Server` 的注释仍写着 es-modbus “bundled into this package”，与现状不符。
 
 ## 解决提案
 
-`layouts`、`blocks` 标 `readonly`；`Modbus_Server` 补上 `port`、`protocol`、`is_valid_unit_id`；修正过时的注释。
+`layouts`、`blocks` 标 `readonly`；`Modbus_Server` 补上 `port`、`protocol`、`is_valid_unit_id`。
+
+原先一并列出的过时注释（`Modbus_Server` 的注释写着 es-modbus “bundled into this package”）已单独修正，提交中引用了本 issue。
 
 ## 裁定

@@ -1,9 +1,9 @@
 ---
 id: f3f4psqe
 opened: 2026-10-17T23:58:30.000Z
-closed:
+closed: 2026-10-23T13:32:37.000Z
 title: 冗余代码
-status: open        # open | accepted | fixed | rejected | wontfix
+status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
@@ -22,3 +22,5 @@ decision_title: 裁定
 删除无效参数 `block_options`；`layouts_file` 处直接 push 错误。
 
 ## 裁定
+
+问题成立，按解决提案修复：两处都是无效或绕路的写法，删去后行为不变。

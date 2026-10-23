@@ -7,7 +7,7 @@ export type {
 	Layout_Source, Registered_Layouts, Endian, Tag_Type,
 } from "layout-data";
 
-/** A Modbus slave service (the server of es-modbus, which is bundled into this package). */
+/** A Modbus slave service (the server of es-modbus, a dependency of this package). */
 export interface Modbus_Server extends EventEmitter {
 	start(): Promise<unknown>;
 	stop(): Promise<unknown>;

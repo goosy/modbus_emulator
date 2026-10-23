@@ -82,13 +82,9 @@ export class Modbus_Emulator {
 				if (!Array.isArray(list)) errors.push(`${prefix}the root key \`${key}\` must be a list`);
 				else for (const entry of list) entries.push({ entry, where: `${prefix}${key}[${entries.length}]` });
 			}
-			try {
-				if (layouts_file !== undefined) {
-					if (typeof layouts_file !== "string") throw new Error("layouts_file must be a path");
-					layout_sources.push(resolve(typeof item === "string" ? dirname(item) : ".", layouts_file));
-				}
-			} catch (e) {
-				errors.push(prefix + e.message);
+			if (layouts_file !== undefined) {
+				if (typeof layouts_file !== "string") errors.push(`${prefix}layouts_file must be a path`);
+				else layout_sources.push(resolve(typeof item === "string" ? dirname(item) : ".", layouts_file));
 			}
 			if (Object.keys(layout_root).length > 0) layout_sources.push(layout_root);
 		}
@@ -112,7 +108,7 @@ export class Modbus_Emulator {
 		for (const { options } of checked_servers) this.servers.push(this.#create_server(options));
 	}
 
-	#read_blocks(entries, errors, block_options) {
+	#read_blocks(entries, errors) {
 		if (entries.length === 0) {
 			errors.push("the root key `blocks` must be a non-empty list");
 			return;
@@ -140,7 +136,7 @@ export class Modbus_Emulator {
 				errors.push(`${where}: duplicated block name ${name}`);
 				continue;
 			}
-			const block = new Ldata(layout, name, block_options);
+			const block = new Ldata(layout, name);
 			this.blocks.set(name, block);
 			this.unit_map.attach_unit(unit_id, block, start, offset);
 		}
