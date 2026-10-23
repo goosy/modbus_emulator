@@ -5,6 +5,9 @@
 
 const SILENT_LOGGER = { warn() { } };
 
+// the most unmapped addresses reported by a vector, which bounds the set that remembers them
+const MAX_UNMAPPED_REPORTS = 1024;
+
 // the bytes of the register being written; write_bytes copies them at once
 const REGISTER_BYTES = new Uint8Array(2);
 
@@ -43,13 +46,17 @@ const get_coil_info = (addr, units) => {
 export function create_vector(unit_map, { logger = SILENT_LOGGER } = {}) {
 	// An unmapped address (e.g. the gap between two data blocks of a unit)
 	// reads as 0 and ignores writes, so that a block read spanning the gap
-	// still succeeds. Each one is logged once.
+	// still succeeds. Each one is logged once, up to MAX_UNMAPPED_REPORTS of them.
 	const reported = new Set();
 	const report_unmapped = (kind, addr, unit_id) => {
 		const key = `${kind}:${unit_id}:${addr}`;
 		if (reported.has(key)) return;
+		if (reported.size >= MAX_UNMAPPED_REPORTS) return;
 		reported.add(key);
 		logger.warn?.(`unmapped ${kind} address ${addr} in unit ${unit_id}`);
+		if (reported.size === MAX_UNMAPPED_REPORTS) {
+			logger.warn?.(`${MAX_UNMAPPED_REPORTS} unmapped addresses reported, further ones are not reported`);
+		}
 	};
 
 	const read_register = (kind) => (addr, unit_id) => {

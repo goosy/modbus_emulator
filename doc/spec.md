@@ -28,7 +28,7 @@ Out of scope: the Modbus master (client), the business logic of a device (implem
 - Coil `addr` corresponds to bit `addr % 8` of byte `addr >> 3`.
 - Holding registers and input registers have the same content. Registers and coils are readable and writable.
 - Writes go through the write methods of Ldata, so the `change` and `write` events of the block fire as usual.
-- An address in a unit with no block reads as 0 / false, and a write to it is ignored. No exception is returned, so a read across a gap still succeeds. A warning is reported once per (type, unit, address).
+- An address in a unit with no block reads as 0 / false, and a write to it is ignored. No exception is returned, so a read across a gap still succeeds. A warning is reported once per (type, unit, address), for at most 1024 addresses; after that, one more warning says that further ones are not reported.
 - An unregistered unit id is answered with exception code 0x0B by es-modbus. An illegal function code, an illegal quantity, or an address out of range is answered with 0x01 / 0x03 / 0x02.
 
 ## 4. Interface

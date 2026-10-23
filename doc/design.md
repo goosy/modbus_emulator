@@ -22,7 +22,7 @@ Dependencies: `layout-data` (layout registration and Ldata) is a runtime depende
 - Register `addr` maps to byte `addr * 2`, read with `read_bytes` of Ldata in big-endian. Coil `addr` maps to bit `addr % 8` of byte `addr >> 3`.
 - Writes go through `write_bytes` / `write_bit` of Ldata, which detects the change after each write. The bytes of a Ldata are not reachable otherwise.
 - es-modbus calls the vector once per register or coil, so a register write is one `write_bytes` of two bytes (taken from a shared two-byte array, which `write_bytes` copies at once) and a register read is one `read_bytes` of two bytes.
-- An unmapped address reads as 0 / false and a write is ignored. It is reported through `logger.warn` once per (type, unit, address), to avoid flooding the log when polling.
+- An unmapped address reads as 0 / false and a write is ignored. It is reported through `logger.warn` once per (type, unit, address), to avoid flooding the log when polling. The reported addresses are kept in a set of at most 1024 entries (`MAX_UNMAPPED_REPORTS`): a master that scans the whole address space would otherwise grow it to 65536 x 3 x 256 entries. When the set is full, one last warning says so and later addresses are neither reported nor recorded.
 - Requests are validated by es-modbus first. When the vector throws, exception 0x04 is answered and the error is logged through the `vector_error` event.
 - An FC 16 request writes several registers in a row within one synchronous call. A caller that wants merged notifications can coalesce them with `setImmediate` (covered by a test).
 

@@ -21,7 +21,7 @@
 - 寄存器 `addr` 对应字节 `addr * 2`，按大端用 Ldata 的 `read_bytes` 读取；线圈 `addr` 对应字节 `addr >> 3` 的第 `addr % 8` 位。
 - 写入经 Ldata 的 `write_bytes` / `write_bit`，由 Ldata 在每次写入后检测变化；Ldata 的字节不能以其他方式访问。
 - es-modbus 对每个寄存器或线圈各调用一次 vector，所以写一个寄存器是一次两字节的 `write_bytes`（字节取自共用的两字节数组，`write_bytes` 立即复制），读一个寄存器是一次两字节的 `read_bytes`。
-- 未映射的地址读为 0 / false，写入被忽略；每个（类型、单元、地址）只经 `logger.warn` 报告一次，避免轮询时刷屏。
+- 未映射的地址读为 0 / false，写入被忽略；每个（类型、单元、地址）只经 `logger.warn` 报告一次，避免轮询时刷屏。已报告的地址记在一个最多 1024 项的集合中（`MAX_UNMAPPED_REPORTS`），否则主站扫描整个地址空间时它会增长到 65536 × 3 × 256 项；集合满后再报告一次警告说明此事，之后的地址既不报告也不记录。
 - 请求由 es-modbus 先行校验：vector 抛出异常时应答 0x04，并通过 `vector_error` 事件记录日志。
 - FC 16 请求在同一个同步调用中连续写多个寄存器；需要合并通知的调用方可以用 `setImmediate` 合并（有测试保证这一点）。
 

@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer";
 import net from "node:net";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
-import { Unit_Map, create_tcp_server, create_rtu_server } from "../src/index.js";
+import { Unit_Map, create_tcp_server, create_rtu_server, create_vector } from "../src/index.js";
 
 const HOST = "127.0.0.1";
 const UNIT = 5;
@@ -206,6 +206,18 @@ describe("create_tcp_server", () => {
 
 		assert.equal(warnings.length, 1);
 		assert.match(warnings[0], /unmapped holding register address 100 in unit 5/);
+	});
+
+	test("the unmapped address warning stops after 1024 addresses", () => {
+		const warnings = [];
+		const vector = create_vector(new Unit_Map(), { logger: { warn: (message) => warnings.push(message) } });
+
+		for (let addr = 0; addr < 1100; addr++) vector.get_holding_register(addr, UNIT);
+		vector.get_holding_register(0, UNIT);
+
+		assert.equal(warnings.length, 1025);
+		assert.match(warnings[1023], /unmapped holding register address 1023 in unit 5/);
+		assert.match(warnings[1024], /1024 unmapped addresses reported, further ones are not reported/);
 	});
 });
 
