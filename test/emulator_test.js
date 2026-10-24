@@ -107,6 +107,26 @@ servers:
 		assert.match(errors.join("\n"), /blocks\[4\]: duplicated block name d/);
 	});
 
+	test("a block name that is not a string and invalid serial settings are reported with the others", () => {
+		const errors = errors_of(`
+blocks:
+  - { name: 123, unit_id: 1, layout: PUMP }
+  - { name: b, unit_id: 300, layout: PUMP }
+servers:
+  - { protocol: rtu, port: COM_TEST, baud_rate: -1, parity: mark, data_bits: 9, stop_bits: 3 }
+  - { protocol: rtu, port: COM_OTHER, baud_rate: 19200, parity: even, data_bits: 7, stop_bits: 1.5 }
+`);
+
+		assert.deepEqual(errors, [
+			"servers[0]: baud_rate must be a positive integer",
+			"servers[0]: parity must be one of none, odd, even",
+			"servers[0]: data_bits must be one of 5, 6, 7, 8",
+			"servers[0]: stop_bits must be one of 1, 1.5, 2",
+			"blocks[0]: name must be a non-empty string",
+			"blocks[1]: unit_id must be an integer from 0 to 255",
+		]);
+	});
+
 	test("a server answers the units of its unit_ids, the others all units", () => {
 		const emulator = make(`
 blocks:

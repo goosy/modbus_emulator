@@ -14,6 +14,11 @@ function is_registered(name) {
 	}
 }
 
+// the serial settings es-modbus accepts
+const PARITIES = ["none", "odd", "even"];
+const DATA_BITS = [5, 6, 7, 8];
+const STOP_BITS = [1, 1.5, 2];
+
 const PROTOCOLS = ["tcp", "rtu_over_tcp", "rtu"];
 const BLOCK_KEYS = ["name", "unit_id", "layout", "start", "offset"];
 const TCP_SERVER_KEYS = ["protocol", "unit_ids", "host", "port"];
@@ -159,6 +164,10 @@ export class Modbus_Emulator {
 		for (const { entry, where } of entries) {
 			check_keys(entry, BLOCK_KEYS, where, errors);
 			const { unit_id, layout, start = 0, offset = 0 } = entry ?? {};
+			if (entry?.name !== undefined && (typeof entry.name !== "string" || entry.name === "")) {
+				errors.push(`${where}: name must be a non-empty string`);
+				continue;
+			}
 			const name = entry?.name ?? `unit_${unit_id}`;
 			if (!Number.isInteger(unit_id) || unit_id < 0 || unit_id > 255) {
 				errors.push(`${where}: unit_id must be an integer from 0 to 255`);
@@ -211,6 +220,13 @@ export class Modbus_Emulator {
 					errors.push(`${where}: port must be a serial device path`);
 					continue;
 				}
+				const { baud_rate = 9600, parity = "none", data_bits = 8, stop_bits = 1 } = server;
+				const before = errors.length;
+				if (!Number.isInteger(baud_rate) || baud_rate < 1) errors.push(`${where}: baud_rate must be a positive integer`);
+				if (!PARITIES.includes(parity)) errors.push(`${where}: parity must be one of ${PARITIES.join(", ")}`);
+				if (!DATA_BITS.includes(data_bits)) errors.push(`${where}: data_bits must be one of ${DATA_BITS.join(", ")}`);
+				if (!STOP_BITS.includes(stop_bits)) errors.push(`${where}: stop_bits must be one of ${STOP_BITS.join(", ")}`);
+				if (errors.length > before) continue;
 				address = server.port;
 			} else {
 				const { host = "0.0.0.0", port = 502 } = server;

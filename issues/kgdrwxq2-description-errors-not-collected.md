@@ -1,9 +1,9 @@
 ---
 id: kgdrwxq2
 opened: 2026-10-24T15:01:24.251Z
-closed:
+closed: 2026-10-24T16:20:22.000Z
 title: 部分描述错误不收入 errors，而是直接抛出
-status: open        # open | accepted | fixed | rejected | wontfix
+status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
@@ -33,3 +33,5 @@ spec 约定：描述不合法时，构造函数抛出一个 `Error`，其 `error
 测试：两种错误都出现在 `errors` 中，并与其他违规项一起报出。
 
 ## 裁定
+
+问题成立，按解决提案修复：校验阶段检查块名须为非空字符串、RTU 串口参数取值与 es-modbus 一致，违规时收入 `errors`，与其他违规项一起报出。

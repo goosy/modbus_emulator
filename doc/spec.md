@@ -92,8 +92,8 @@ servers:
   - { protocol: rtu, port: COM3, baud_rate: 9600, parity: none }
 ```
 
-- `blocks[].name` defaults to `unit_<unit_id>`, and block names must be unique. The byte ranges of the blocks of one unit may not overlap. `offset` (optional) is the start byte inside the block, even.
-- `servers[].protocol` is one of `tcp`, `rtu_over_tcp`, `rtu`. For `tcp` and `rtu_over_tcp`, `host` defaults to `0.0.0.0` and `port` to 502; `port` is an integer from 0 to 65535 (0: chosen by the system). For `rtu`, `port` is the serial port path, with optional `baud_rate`, `parity`, `data_bits`, `stop_bits`.
+- `blocks[].name` is a non-empty string, defaults to `unit_<unit_id>`, and block names must be unique. The byte ranges of the blocks of one unit may not overlap. `offset` (optional) is the start byte inside the block, even.
+- `servers[].protocol` is one of `tcp`, `rtu_over_tcp`, `rtu`. For `tcp` and `rtu_over_tcp`, `host` defaults to `0.0.0.0` and `port` to 502; `port` is an integer from 0 to 65535 (0: chosen by the system). For `rtu`, `port` is the serial port path, with optional `baud_rate` (a positive integer, default 9600), `parity` (`none`, `odd` or `even`, default `none`), `data_bits` (5, 6, 7 or 8, default 8) and `stop_bits` (1, 1.5 or 2, default 1).
 - Two `tcp` / `rtu_over_tcp` services may not use the same `host` and `port`, except port 0; services on different hosts may use the same port. Two `rtu` services may not use the same serial port path.
 - A block entry has only the keys `name`, `unit_id`, `layout`, `start`, `offset`. A service entry has only `protocol`, `unit_ids`, and `host`, `port` for `tcp` / `rtu_over_tcp`, or `port`, `baud_rate`, `parity`, `data_bits`, `stop_bits` for `rtu`. Another key is an error. The root keys are not checked: a key other than `blocks`, `servers` and `layouts_file` is a fragment name of layout-data.
 - `servers[].unit_ids` (optional) are the unit ids the service answers: a non-empty list of integers from 0 to 255, each of which must have a block. By default the service answers all units.
