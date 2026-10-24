@@ -1,9 +1,9 @@
 ---
 id: g57sjq24
 opened: 2026-10-17T23:58:18.000Z
-closed:
+closed: 2026-10-24T16:18:10.000Z
 title: 隐性的对象描述入口
-status: open        # open | accepted | fixed | rejected | wontfix
+status: rejected    # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
@@ -26,3 +26,5 @@ decision_title: 裁定
 测试：路径与对象混合的列表；对象中相对的 `layouts_file` 按当前目录解析。
 
 ## 裁定
+
+问题不成立（rejected）：对象形式的描述是有意不公开的内部入口，供同系列项目的控制器使用。design 已写明它的用途和对象中相对 `layouts_file` 按当前目录解析的规则，测试也覆盖了它，并非重构时容易被破坏的隐性契约。
