@@ -56,5 +56,5 @@ Dependencies:
 ## 5. Build and Test
 
 - `pnpm build`: rolldown bundles `src/index.js` into `dist/modbus_emulator.js`.
-- `pnpm test`: builds first, then runs `node --test`. The tests use the es-modbus `Modbus_Client` as the master. The TCP servers under test listen on port 0 and the tests read the port the system picked, so no other process can take it between probing and listening. The RTU serial port is tested for construction only.
+- `pnpm test`: builds first, then runs `node --test`. The tests import `src`, except a smoke test of the bundle: it checks that `dist` exports what `src` exports, keeps layout-data external and serves a master. The tests use the es-modbus `Modbus_Client` as the master. The TCP servers under test listen on port 0 and the tests read the port the system picked, so no other process can take it between probing and listening. The RTU serial port is tested for construction only.
 - `pnpm lint`: ESLint.
