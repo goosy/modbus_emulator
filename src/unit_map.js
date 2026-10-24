@@ -1,11 +1,11 @@
 // The unit map that places data blocks at unit ids and byte offsets, and the
-// es-modbus server vector that serves them. Writes go through the Ldata
+// es-modbus server handler that serves them. Writes go through the Ldata
 // write methods, so that changes are detected or notified by the Ldata; reads
 // go through read_bytes. The bytes of a Ldata are never reached directly.
 
 const SILENT_LOGGER = { warn() { } };
 
-// the most unmapped addresses reported by a vector, which bounds the set that remembers them
+// the most unmapped addresses reported by a handler, which bounds the set that remembers them
 const MAX_UNMAPPED_REPORTS = 1024;
 
 // the bytes of the register being written; write_bytes copies them at once
@@ -36,14 +36,14 @@ const get_coil_info = (addr, units) => {
 };
 
 /**
- * Creates the es-modbus server vector that serves the data blocks of a unit map.
+ * Creates the es-modbus server handler that serves the data blocks of a unit map.
  *
  * @param {Unit_Map} unit_map - The data blocks attached per unit id.
  * @param {Object} [options]
  * @param {{warn: (message: string) => void}} [options.logger] - Reports unmapped addresses; silent by default.
- * @return {Object} The vector: get_input_register, get_holding_register, set_register, get_coil, set_coil.
+ * @return {Object} The handler: get_input_register, get_holding_register, set_holding_register, get_coil, set_coil.
  */
-export function create_vector(unit_map, { logger = SILENT_LOGGER } = {}) {
+export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 	// An unmapped address (e.g. the gap between two data blocks of a unit)
 	// reads as 0 and ignores writes, so that a block read spanning the gap
 	// still succeeds. Each one is logged once, up to MAX_UNMAPPED_REPORTS of them.
@@ -68,10 +68,10 @@ export function create_vector(unit_map, { logger = SILENT_LOGGER } = {}) {
 		return block.read_bytes(offset, 2).readUInt16BE(0);
 	};
 
-	const vector = {
+	const handler = {
 		get_input_register: read_register("input register"),
 		get_holding_register: read_register("holding register"),
-		set_register: (addr, value, unit_id) => {
+		set_holding_register: (addr, value, unit_id) => {
 			const { block, offset } = get_register_info(addr, unit_map[unit_id]);
 			if (block == null) {
 				report_unmapped("holding register", addr, unit_id);
@@ -100,7 +100,7 @@ export function create_vector(unit_map, { logger = SILENT_LOGGER } = {}) {
 			block.write_bit(offset, bit_mask, value);
 		},
 	};
-	return vector;
+	return handler;
 }
 
 export class Unit_Map {

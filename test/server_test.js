@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer";
 import net from "node:net";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
-import { Unit_Map, create_tcp_server, create_rtu_server, create_vector } from "../src/index.js";
+import { Unit_Map, create_tcp_server, create_rtu_server, create_handler } from "../src/index.js";
 
 const HOST = "127.0.0.1";
 const UNIT = 5;
@@ -101,7 +101,7 @@ describe("create_tcp_server", () => {
 	});
 
 	// A user may coalesce the notifications of one request with setImmediate:
-	// it relies on es-modbus calling the vector for every register of an
+	// it relies on es-modbus calling the handler for every register of an
 	// FC 16 request within one synchronous call.
 	test("an FC 16 request writes all its registers in one synchronous call", async (t) => {
 		const { master, data } = await setup(t);
@@ -210,10 +210,10 @@ describe("create_tcp_server", () => {
 
 	test("the unmapped address warning stops after 1024 addresses", () => {
 		const warnings = [];
-		const vector = create_vector(new Unit_Map(), { logger: { warn: (message) => warnings.push(message) } });
+		const handler = create_handler(new Unit_Map(), { logger: { warn: (message) => warnings.push(message) } });
 
-		for (let addr = 0; addr < 1100; addr++) vector.get_holding_register(addr, UNIT);
-		vector.get_holding_register(0, UNIT);
+		for (let addr = 0; addr < 1100; addr++) handler.get_holding_register(addr, UNIT);
+		handler.get_holding_register(0, UNIT);
 
 		assert.equal(warnings.length, 1025);
 		assert.match(warnings[1023], /unmapped holding register address 1023 in unit 5/);

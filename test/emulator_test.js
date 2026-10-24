@@ -392,7 +392,7 @@ servers:
 		await assert.rejects(tcp.read([3, 0, 1], 2), { message: "response error: 11" });
 	});
 
-	test("all the servers share one vector and the unmapped warning is reported once", async (t) => {
+	test("all the servers share one handler and the unmapped warning is reported once", async (t) => {
 		const [port_a, port_b] = [await free_port(), await free_port()];
 		const warnings = [];
 		const emulator = make(`
@@ -413,7 +413,7 @@ servers:
 
 		for (const master of masters) await master.read([3, 1000, 1], 1);
 
-		assert.ok(emulator.vector);
+		assert.ok(emulator.handler);
 		assert.equal(warnings.length, 1);
 	});
 

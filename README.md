@@ -74,7 +74,7 @@ await server.start();
 
 Take `Ldata` and `register_layout` from this package rather than from layout-data, so that there is one copy of layout-data in the process.
 
-`create_rtu_server(path, unit_map, options)` creates an RTU slave on a serial port. `create_vector(unit_map, { logger })` returns the es-modbus server vector for fully custom assembly.
+`create_rtu_server(path, unit_map, options)` creates an RTU slave on a serial port. `create_handler(unit_map, { logger })` returns the es-modbus server handler for fully custom assembly.
 
 ## Address mapping
 

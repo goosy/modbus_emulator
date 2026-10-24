@@ -32,16 +32,16 @@ modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 ## 4. 接口
 
 - `Modbus_Emulator(source, options)`：主构造方法，`source` 是描述文件的路径（§5），或路径列表：多个文件作为同一份描述一并读取；建立数据块和服务；
-  - `blocks`：数据块名到 Ldata 的映射；`block(name)` 取得一个数据块；`unit_map`：单元表；`servers`：服务实例；`layouts`：已注册的布局（按名称，只读）；`vector`：全部服务共用的 vector；
+  - `blocks`：数据块名到 Ldata 的映射；`block(name)` 取得一个数据块；`unit_map`：单元表；`servers`：服务实例；`layouts`：已注册的布局（按名称，只读）；`handler`：全部服务共用的 handler；
   - `start(options)`：启动全部服务。缺省为全部或全部不：任一服务启动失败时停掉全部服务，因此 `start()` 成功即全部在运行，失败即全部已停止；`{ partial: true }` 时尽力启动，已启动的服务保持运行。两种模式下有失败都以 `AggregateError` 拒绝，列出全部失败的服务：每项是一个 `Error`，消息标明服务，如 `servers[1] (modbus://0.0.0.0:503): ...`，原始错误放在 `cause`；
   - `stop()`：停止全部服务；
   - 描述文件不合法时抛出 `Error`，其 `errors` 属性列出全部违规项；文件无法读取也是其中一项。
-- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, vector, logger })`：创建 Modbus TCP 服务，`host` 缺省 `0.0.0.0`、`port` 缺省 502，`unit_map` 必填；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
-- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, vector, logger })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
-- `Unit_Map` / `create_vector(unit_map, { logger })`：单元表和 es-modbus 的服务端 vector，供不用描述文件的调用方（如控制器）自行组装。
+- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, handler, logger })`：创建 Modbus TCP 服务，`host` 缺省 `0.0.0.0`、`port` 缺省 502，`unit_map` 必填；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
+- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, logger })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
+- `Unit_Map` / `create_handler(unit_map, { logger })`：单元表和 es-modbus 的服务端 handler，供不用描述文件的调用方（如控制器）自行组装。
 - `Ldata`、`Ltag`、`register_layout`、`get_layout`、`io_index_table`、`render_types`，以及与之相配的 layout-data 类型（`Layout`、`Layout_Tag`、`Layout_Item`、`Tag_Item`、`Include_Item`、`Layout_Description`、`Layout_Source`、`Registered_Layouts`、`Endian`、`Tag_Type`）：调用方用到的 [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md) 接口，原样转发。数据块就是 `Ldata` 对象，所以调用方只从本包取得这些接口，不再自己依赖 layout-data，进程里也只有一份（`register_layout` 每个进程只能成功调用一次，需要这一点）。转发的接口随本包所依赖的 layout-data 版本而变。
 - `unit_ids`：可选，该服务应答的单元号列表，缺省为 `unit_map` 中的全部单元；列表外的单元号由 es-modbus 应答异常码 0x0B；
-- `vector`：可选，要服务的 vector（`create_vector` 的结果）；同一个单元表的多个服务可以共用一个，缺省时由单元表建立；
+- `handler`：可选，要服务的 handler（`create_handler` 的结果）；同一个单元表的多个服务可以共用一个，缺省时由单元表建立；
 - `logger`：可选，含 `info` / `warn` / `error` 方法；缺省或缺方法时不输出。
 
 ## 5. 描述文件

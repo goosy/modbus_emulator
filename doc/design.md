@@ -8,7 +8,7 @@
 | File | Responsibility |
 | --- | --- |
 | `src/index.js` | The public interface of the package, including the forwarded API of layout-data |
-| `src/unit_map.js` | `Unit_Map` and the es-modbus server vector |
+| `src/unit_map.js` | `Unit_Map` and the es-modbus server handler |
 | `src/server.js` | `create_tcp_server`, `create_rtu_server`, and the logging of server events |
 | `src/emulator.js` | `Modbus_Emulator`: reads the description file, builds blocks and services |
 | `src/index.d.ts` | Type declarations of the public interface (hand-written) |
@@ -26,23 +26,23 @@ Dependencies:
   - To co-develop with an unpublished version of a dependency (layout-data, es-modbus), reference it temporarily through yalc (`file:.yalc/<name>`), which installs the published content like an ordinary dependency, and switch back to a version number before committing or publishing.
   - Do not use pnpm `link:`: it resolves the dependency from its own repository, so a caller ends up with two instances of the same module.
 
-## 2. Unit_Map and the Vector
+## 2. Unit_Map and the Handler
 
 - `Unit_Map.attach_unit(unit_id, block, start, offset)` attaches a Ldata to the byte range `[start, start + size)` of a unit. A unit can hold several Ldata. `unit_ids` lists the attached unit ids.
-- `create_vector(unit_map, { logger })` returns the vector required by es-modbus, with snake_case method names: `get_holding_register`, `get_input_register`, `set_register`, `get_coil` (used for both FC 1 and FC 2), `set_coil`.
+- `create_handler(unit_map, { logger })` returns the handler required by es-modbus, with snake_case method names: `get_holding_register`, `get_input_register`, `set_holding_register`, `get_coil` (used for both FC 1 and FC 2), `set_coil`.
 - Register `addr` maps to byte `addr * 2`, read with `read_bytes` of Ldata in big-endian. Coil `addr` maps to bit `addr % 8` of byte `addr >> 3`.
 - Writes go through `write_bytes` / `write_bit` of Ldata, which detects the change after each write. The bytes of a Ldata are not reachable otherwise.
-- es-modbus calls the vector once per register or coil, so a register write is one `write_bytes` of two bytes (taken from a shared two-byte array, which `write_bytes` copies at once) and a register read is one `read_bytes` of two bytes.
+- es-modbus calls the handler once per register or coil, so a register write is one `write_bytes` of two bytes (taken from a shared two-byte array, which `write_bytes` copies at once) and a register read is one `read_bytes` of two bytes.
 - An unmapped address reads as 0 / false and a write is ignored. It is reported through `logger.warn` once per (type, unit, address), to avoid flooding the log when polling. The reported addresses are kept in a set of at most 1024 entries (`MAX_UNMAPPED_REPORTS`): a master that scans the whole address space would otherwise grow it to 65536 x 3 x 256 entries. When the set is full, one last warning says so and later addresses are neither reported nor recorded.
-- Requests are validated by es-modbus first. When the vector throws, exception 0x04 is answered and the error is logged through the `vector_error` event.
+- Requests are validated by es-modbus first. When the handler throws, exception 0x04 is answered and the error is logged through the `handler_error` event.
 - An FC 16 request writes several registers in a row within one synchronous call. A caller that wants merged notifications can coalesce them with `setImmediate` (covered by a test).
 
 ## 3. Services
 
-- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, logger })`: creates a `Modbus_Server` with the vector. `unit_id` comes from the `unit_ids` option, which defaults to `unit_map.unit_ids`. es-modbus copies it into a set at construction, so a unit attached later has no effect: attach the units before creating the servers. `rtu` is passed to the option of the same name in es-modbus. The `vector` option is built with `create_vector` when omitted.
-- `Modbus_Emulator` builds one vector (`emulator.vector`) after the unit map is built, and passes it to all its servers. The vector only looks things up in the unit map and has no other state, so sharing it makes the unmapped-address warning reported once across all the servers, not once per server. The vector depends on the unit map and the logger, so it cannot live at module level: several emulators in one process would share it by mistake.
+- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, logger })`: creates a `Modbus_Server` with the handler. `unit_id` comes from the `unit_ids` option, which defaults to `unit_map.unit_ids`. es-modbus copies it into a set at construction, so a unit attached later has no effect: attach the units before creating the servers. `rtu` is passed to the option of the same name in es-modbus. The `handler` option is built with `create_handler` when omitted.
+- `Modbus_Emulator` builds one handler (`emulator.handler`) after the unit map is built, and passes it to all its servers. The handler only looks things up in the unit map and has no other state, so sharing it makes the unmapped-address warning reported once across all the servers, not once per server. The handler depends on the unit map and the logger, so it cannot live at module level: several emulators in one process would share it by mistake.
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, logger })`: `unit_ids` is the same. `port` takes the serial port path, from which es-modbus selects the RTU transport. The parameters are checked at construction, but the port is opened only at `start()`, so construction needs no hardware.
-- `normalize_logger(logger)` turns the caller's logger into an object with `info` / `warn` / `error`, silent for missing methods. Both kinds of server log `start`, `stop`, and the connection and disconnection of a client at `info` (they are normal events), and `error` / `vector_error` / socket errors at `error`.
+- `normalize_logger(logger)` turns the caller's logger into an object with `info` / `warn` / `error`, silent for missing methods. Both kinds of server log `start`, `stop`, and the connection and disconnection of a client at `info` (they are normal events), and `error` / `handler_error` / socket errors at `error`.
 
 ## 4. Modbus_Emulator
 

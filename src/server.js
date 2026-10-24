@@ -1,5 +1,5 @@
 import { Modbus_Server } from "es-modbus";
-import { create_vector } from "./unit_map.js";
+import { create_handler } from "./unit_map.js";
 
 /** A logger that has the three levels used here, whatever the given one lacks is silent. */
 export function normalize_logger(logger) {
@@ -24,7 +24,7 @@ function log_events(server, label, logger) {
 	server.on("error", (err) => {
 		logger.error(`server error: ${err.message}`);
 	});
-	server.on("vector_error", (err) => {
+	server.on("handler_error", (err) => {
 		logger.error(`server request failed: ${err.message}`);
 	});
 	server.on("stop", () => {
@@ -42,16 +42,16 @@ function log_events(server, label, logger) {
  * @param {Object} [options]
  * @param {boolean} [options.rtu=false] - Use RTU framing on the accepted sockets (RTU-over-TCP).
  * @param {number[]} [options.unit_ids] - The unit ids this server answers; every unit of the unit map when omitted.
- * @param {Object} [options.vector] - The vector to serve, from `create_vector`; servers of one unit map can share it. Built from the unit map when omitted.
+ * @param {Object} [options.handler] - The handler to serve, from `create_handler`; servers of one unit map can share it. Built from the unit map when omitted.
  * @param {{info: Function, warn: Function, error: Function}} [options.logger] - Silent by default.
  * @return {import('es-modbus').Modbus_Server} The server instance.
  */
-export function create_tcp_server(host = "0.0.0.0", port = 502, unit_map, { rtu = false, unit_ids: _unit_ids, vector: _vector, logger: _logger } = {}) {
+export function create_tcp_server(host = "0.0.0.0", port = 502, unit_map, { rtu = false, unit_ids: _unit_ids, handler: _handler, logger: _logger } = {}) {
 	const logger = normalize_logger(_logger);
 	if (unit_map === undefined || unit_map === null) throw new Error("unit_map is required");
 	const unit_ids = _unit_ids ?? unit_map.unit_ids;
-	const vector = _vector ?? create_vector(unit_map, { logger });
-	const server = new Modbus_Server(vector, { host, port, rtu, unit_id: unit_ids });
+	const handler = _handler ?? create_handler(unit_map, { logger });
+	const server = new Modbus_Server(handler, { host, port, rtu, unit_id: unit_ids });
 	log_events(server, `${rtu ? "rtu" : "modbus"}://${host}:${port}`, logger);
 	return server;
 }
@@ -68,18 +68,18 @@ export function create_tcp_server(host = "0.0.0.0", port = 502, unit_map, { rtu 
  * @param {number} [options.data_bits=8]
  * @param {number} [options.stop_bits=1]
  * @param {number[]} [options.unit_ids] - The unit ids this server answers; every unit of the unit map when omitted.
- * @param {Object} [options.vector] - The vector to serve, from `create_vector`; servers of one unit map can share it. Built from the unit map when omitted.
+ * @param {Object} [options.handler] - The handler to serve, from `create_handler`; servers of one unit map can share it. Built from the unit map when omitted.
  * @param {{info: Function, warn: Function, error: Function}} [options.logger] - Silent by default.
  * @return {import('es-modbus').Modbus_Server} The server instance.
  */
-export function create_rtu_server(path, unit_map, { unit_ids: _unit_ids, vector: _vector, logger: _logger, ...serial } = {}) {
+export function create_rtu_server(path, unit_map, { unit_ids: _unit_ids, handler: _handler, logger: _logger, ...serial } = {}) {
 	const logger = normalize_logger(_logger);
 	if (typeof path !== "string" || path === "") throw new Error(`Invalid serial port path: ${path}`);
 	if (unit_map === undefined || unit_map === null) throw new Error("unit_map is required");
 	const unit_ids = _unit_ids ?? unit_map.unit_ids;
 	const { baud_rate, parity, data_bits, stop_bits } = serial;
-	const vector = _vector ?? create_vector(unit_map, { logger });
-	const server = new Modbus_Server(vector, {
+	const handler = _handler ?? create_handler(unit_map, { logger });
+	const server = new Modbus_Server(handler, {
 		port: path, baud_rate, parity, data_bits, stop_bits, unit_id: unit_ids,
 	});
 	log_events(server, `serial://${path}`, logger);

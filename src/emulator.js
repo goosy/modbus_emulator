@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parseDocument } from "yaml";
 import { Ldata, get_layout, register_layout } from "layout-data";
-import { Unit_Map, create_vector } from "./unit_map.js";
+import { Unit_Map, create_handler } from "./unit_map.js";
 import { create_tcp_server, create_rtu_server, normalize_logger } from "./server.js";
 
 /** Whether a layout of the name is registered in layout-data. */
@@ -48,8 +48,8 @@ function check_keys(entry, allowed, where, errors) {
 export class Modbus_Emulator {
 	/** @type {Unit_Map} */
 	unit_map = new Unit_Map();
-	/** @type {Object} The vector shared by all the servers. */
-	vector;
+	/** @type {Object} The handler shared by all the servers. */
+	handler;
 	/** @type {Map<string, Ldata>} The data blocks by block name. */
 	blocks = new Map();
 	/** @type {Object<string, Object>} The compiled layouts by name. */
@@ -136,7 +136,7 @@ export class Modbus_Emulator {
 		this.#check_server_units(checked_servers, errors);
 		if (errors.length > 0) fail();
 
-		this.vector = create_vector(this.unit_map, { logger: this.logger });
+		this.handler = create_handler(this.unit_map, { logger: this.logger });
 		for (const { where, options } of checked_servers) {
 			this.servers.push(this.#create_server(options));
 			this.#labels.push(`${where} (${address_of(options)})`);
@@ -242,11 +242,11 @@ export class Modbus_Emulator {
 
 	#create_server(options) {
 		const { protocol, host, port, baud_rate, parity, data_bits, stop_bits, unit_ids } = options;
-		const { logger, vector } = this;
+		const { logger, handler } = this;
 		if (protocol === "rtu") {
-			return create_rtu_server(port, this.unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, vector, logger });
+			return create_rtu_server(port, this.unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, logger });
 		}
-		return create_tcp_server(host, port, this.unit_map, { rtu: protocol === "rtu_over_tcp", unit_ids, vector, logger });
+		return create_tcp_server(host, port, this.unit_map, { rtu: protocol === "rtu_over_tcp", unit_ids, handler, logger });
 	}
 
 	/**
