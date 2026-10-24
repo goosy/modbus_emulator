@@ -4,7 +4,7 @@ opened: 2026-10-24T05:16:05.092Z
 closed: 2026-10-24T07:17:14.000Z
 title: es-modbus 的 vector 改名为 handler，写寄存器全部失败，handler 错误不再记录
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [e4e8738]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

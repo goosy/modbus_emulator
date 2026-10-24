@@ -4,7 +4,7 @@ opened: 2026-10-17T23:58:14.000Z
 closed: 2026-10-24T09:58:01.000Z
 title: 逐点读取使 access 事件重复且不精确
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [f465cb4, 6e53415]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

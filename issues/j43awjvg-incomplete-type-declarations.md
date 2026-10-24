@@ -4,7 +4,7 @@ opened: 2026-10-17T23:58:23.000Z
 closed: 2026-10-24T18:29:00.000Z
 title: 类型声明不完整
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [e7d125a, 3f746e7]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

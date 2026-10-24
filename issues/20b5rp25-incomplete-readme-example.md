@@ -4,7 +4,7 @@ opened: 2026-10-17T23:58:29.000Z
 closed: 2026-10-23T13:32:37.000Z
 title: README 示例不完整
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [e7d125a]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

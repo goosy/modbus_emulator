@@ -4,7 +4,7 @@ opened: 2026-10-17T23:58:07.000Z
 closed: 2026-10-23T14:07:46.000Z
 title: 块的 offset 没有要求偶数
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [a14a08c]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

@@ -4,7 +4,7 @@ opened: 2026-10-17T23:58:20.000Z
 closed: 2026-10-24T16:18:10.000Z
 title: 布局注册每进程一次的约束未写入 spec
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [6a67012]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

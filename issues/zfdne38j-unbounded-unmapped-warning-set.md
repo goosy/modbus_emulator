@@ -4,7 +4,7 @@ opened: 2026-10-17T23:58:15.000Z
 closed: 2026-10-23T14:39:05.000Z
 title: 未映射地址警告的集合无上限
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [10478ec]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

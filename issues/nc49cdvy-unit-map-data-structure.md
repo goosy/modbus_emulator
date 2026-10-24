@@ -4,7 +4,7 @@ opened: 2026-10-17T23:58:19.000Z
 closed: 2026-10-24T12:53:23.000Z
 title: Unit_Map 的数据结构
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [94b5f08]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

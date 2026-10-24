@@ -10,7 +10,8 @@
 		}
 	},
 	"files": [
-		"src"
+		"src",
+		"CHANGELOG.md"
 	],
 	"engines": {
 		"node": ">=20.11"
@@ -37,7 +38,11 @@
 		"emulator",
 		"simulator"
 	],
-	"author": "",
-	"license": "ISC",
+	"author": "Goosy Jo <goosy.jo@gmail.com>",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/goosy/modbus_emulator.git"
+	},
+	"license": "MPL-2.0",
 	"packageManager": "pnpm@12.5.1"
 }

@@ -4,7 +4,7 @@ opened: 2026-10-24T15:01:24.251Z
 closed: 2026-10-24T16:20:22.000Z
 title: 部分描述错误不收入 errors，而是直接抛出
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [a03e9cc]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

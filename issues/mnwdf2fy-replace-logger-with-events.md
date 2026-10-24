@@ -4,7 +4,7 @@ opened: 2026-10-23T13:15:47.067Z
 closed: 2026-10-24T18:26:07.000Z
 title: 诊断信息通过注入的 logger 输出，调用方无法以事件方式处理
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [d005ad7, 10d51f8]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

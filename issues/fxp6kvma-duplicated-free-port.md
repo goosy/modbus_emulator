@@ -4,7 +4,7 @@ opened: 2026-10-17T23:58:26.000Z
 closed: 2026-10-24T09:26:11.000Z
 title: 测试辅助函数 free_port 重复且有竞态
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [844109d]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

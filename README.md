@@ -109,4 +109,4 @@ pnpm lint
 
 ## License
 
-ISC
+MPL-2.0

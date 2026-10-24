@@ -4,7 +4,7 @@ opened: 2026-10-17T23:58:08.000Z
 closed: 2026-10-24T12:55:35.000Z
 title: 同一单元内块的地址范围重叠没有检测
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [522b4ca]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

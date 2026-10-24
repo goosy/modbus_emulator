@@ -4,7 +4,7 @@ opened: 2026-10-17T23:58:13.000Z
 closed: 2026-10-24T18:27:41.000Z
 title: RTU 的 unit 0 与保留地址未说明
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [03d30e7]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述
