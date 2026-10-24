@@ -1,9 +1,9 @@
 ---
 id: 6w441q89
 opened: 2026-10-17T23:58:04.000Z
-closed:
+closed: 2026-10-24T09:55:55.000Z
 title: 多寄存器写入出现中间值（撕裂）
-status: accepted        # open | accepted | fixed | rejected | wontfix
+status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:

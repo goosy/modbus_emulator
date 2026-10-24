@@ -26,6 +26,8 @@ modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - 线圈 `addr` 对应字节 `addr >> 3` 的第 `addr % 8` 位；
 - 保持寄存器与输入寄存器内容相同；寄存器和线圈可读写；
 - 写入经 Ldata 的写入方法完成，因此数据块的 `change` 和 `write` 事件照常触发；
+- 一次 FC 16 / FC 15 请求是原子的：对写到的每个块写入一次，发出一次 `write` 和一次 `write` 类的 `access`；写入中途失败时，涉及的块全部恢复，主站收到异常码 0x04。FC 6 / FC 5 写一个点。这由 handler 完成，所以用 `create_handler` 自行装配的服务行为相同；
+- 提交一次请求的写入时，块的监听器（`change`、`write`、`access`）抛出的异常既不撤销写入，也不影响其他块：主站照常收到应答，handler 发出 `listener_error`，载荷 `{ block, error }`；
 - 单元内没有数据块的地址读为 0 / false，写入被忽略，不应答异常，因此跨越空档的整块读取仍能成功；handler 对每个（类型、单元、地址）只发出一次 `unmapped`，最多 1024 个地址，之后发出一次 `unmapped_limit`，不再发出 `unmapped`（见“事件”）；
 - 未登记的单元号由 es-modbus 应答异常码 0x0B；非法功能码、数量或地址越界应答 0x01 / 0x03 / 0x02。
 

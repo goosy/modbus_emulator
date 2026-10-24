@@ -3,6 +3,9 @@
 // write methods, so that changes are detected or notified by the Ldata; reads
 // go through read_bytes. The bytes of a Ldata are never reached directly.
 
+import { Buffer } from "node:buffer";
+import { EventEmitter } from "node:events";
+
 const SILENT_LOGGER = { warn() { } };
 
 // the most unmapped addresses reported by a handler, which bounds the set that remembers them
@@ -36,12 +39,80 @@ const get_coil_info = (addr, units) => {
 };
 
 /**
+ * Splits the registers of one request into runs: consecutive registers held by one block at
+ * consecutive offsets. An unmapped register is passed to `report` and belongs to no run.
+ * run.index: the index of its first register in the request.
+ */
+const register_runs = (addr, quantity, units, report) => {
+	const runs = [];
+	let run = null;
+	for (let i = 0; i < quantity; i++) {
+		const { block, offset } = get_register_info(addr + i, units);
+		if (block == null) {
+			report(addr + i);
+			run = null;
+		} else if (run?.block === block && run.offset + run.count * 2 === offset) {
+			run.count++;
+		} else {
+			run = { block, offset, index: i, count: 1 };
+			runs.push(run);
+		}
+	}
+	return runs;
+};
+
+/**
+ * Locates the coils of one request: the block, the byte offset in it and the bit mask of each
+ * mapped coil. An unmapped coil is passed to `report` and left out. point.index: its index in the request.
+ */
+const coil_points = (addr, quantity, units, report) => {
+	const points = [];
+	for (let i = 0; i < quantity; i++) {
+		const { block, offset, bit_mask } = get_coil_info(addr + i, units);
+		if (block == null) report(addr + i);
+		else points.push({ block, offset, bit_mask, index: i });
+	}
+	return points;
+};
+
+/** The distinct blocks of runs or points, in the order of the addresses. */
+const blocks_of = (parts) => [...new Set(parts.map(({ block }) => block))];
+
+/**
+ * Runs fn in the transactions of blocks, nested with the last block outermost: the inner ones
+ * commit first, so the events follow the addresses. When fn throws, every block rolls back and
+ * the error is thrown. The error a listener throws at the commit of a block (transaction rethrows
+ * the first one) is passed to `report` once fn is done: it undoes nothing and does not stop the
+ * commit of the other blocks.
+ */
+const in_transactions = (blocks, fn, report) => {
+	let done = false;
+	const nest = (i) => {
+		if (i < 0) {
+			fn();
+			done = true;
+			return;
+		}
+		const block = blocks[i];
+		try {
+			block.transaction(() => nest(i - 1));
+		} catch (error) {
+			if (!done) throw error;
+			report(block, error);
+		}
+	};
+	nest(blocks.length - 1);
+};
+
+/**
  * Creates the es-modbus server handler that serves the data blocks of a unit map.
  *
  * @param {Unit_Map} unit_map - The data blocks attached per unit id.
  * @param {Object} [options]
  * @param {{warn: (message: string) => void}} [options.logger] - Reports unmapped addresses; silent by default.
- * @return {Object} The handler: get_input_register, get_holding_register, set_holding_register, get_coil, set_coil.
+ * @return {EventEmitter} The handler: get_input_register, get_holding_register, set_holding_register,
+ *   get_coil, set_coil, and the batch writes set_holding_registers, set_coils. It emits `listener_error`
+ *   with `{ block, error }` for an error a block listener throws when a batch write commits.
  */
 export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 	// An unmapped address (e.g. the gap between two data blocks of a unit)
@@ -68,7 +139,9 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 		return block.read_bytes(offset, 2).readUInt16BE(0);
 	};
 
-	const handler = {
+	const report_listener_error = (block, error) => handler.emit("listener_error", { block, error });
+
+	const handler = Object.assign(new EventEmitter(), {
 		get_input_register: read_register("input register"),
 		get_holding_register: read_register("holding register"),
 		set_holding_register: (addr, value, unit_id) => {
@@ -80,6 +153,19 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 			REGISTER_BYTES[0] = value >> 8;
 			REGISTER_BYTES[1] = value & 0xff;
 			block.write_bytes(offset, REGISTER_BYTES);
+		},
+
+		// one FC 16 request: written atomically, one write_bytes per run
+		set_holding_registers: (addr, values, unit_id) => {
+			const report = (unmapped) => report_unmapped("holding register", unmapped, unit_id);
+			const runs = register_runs(addr, values.length, unit_map[unit_id], report);
+			in_transactions(blocks_of(runs), () => {
+				for (const { block, offset, index, count } of runs) {
+					const bytes = Buffer.alloc(count * 2);
+					for (let i = 0; i < count; i++) bytes.writeUInt16BE(values[index + i], i * 2);
+					block.write_bytes(offset, bytes);
+				}
+			}, report_listener_error);
 		},
 
 		get_coil: (addr, unit_id) => {
@@ -99,7 +185,30 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 			}
 			block.write_bit(offset, bit_mask, value);
 		},
-	};
+
+		// one FC 15 request: written atomically, one write_bit per byte and value
+		set_coils: (addr, values, unit_id) => {
+			const report = (unmapped) => report_unmapped("coil", unmapped, unit_id);
+			const points = coil_points(addr, values.length, unit_map[unit_id], report);
+			// the coils of one byte: the mask of the bits set and of the bits cleared
+			const bytes = [];
+			for (const { block, offset, bit_mask, index } of points) {
+				let byte = bytes.at(-1);
+				if (byte?.block !== block || byte.offset !== offset) {
+					byte = { block, offset, set: 0, clear: 0 };
+					bytes.push(byte);
+				}
+				if (values[index]) byte.set |= bit_mask;
+				else byte.clear |= bit_mask;
+			}
+			in_transactions(blocks_of(points), () => {
+				for (const { block, offset, set, clear } of bytes) {
+					if (set) block.write_bit(offset, set, true);
+					if (clear) block.write_bit(offset, clear, false);
+				}
+			}, report_listener_error);
+		},
+	});
 	return handler;
 }
 

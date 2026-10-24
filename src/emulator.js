@@ -137,6 +137,10 @@ export class Modbus_Emulator {
 		if (errors.length > 0) fail();
 
 		this.handler = create_handler(this.unit_map, { logger: this.logger });
+		// until events replace the logger (issue#mnwdf2fy)
+		this.handler.on("listener_error", ({ block, error }) => {
+			this.logger.error(`a listener of block ${block.name} failed: ${error?.message ?? error}`);
+		});
 		for (const { where, options } of checked_servers) {
 			this.servers.push(this.#create_server(options));
 			this.#labels.push(`${where} (${address_of(options)})`);

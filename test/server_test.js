@@ -10,8 +10,8 @@ const OTHER_UNIT = 9; // never attached: the server answers exception 0x0B
 
 /**
  * A minimal Ldata stand-in: the server reads through read_bytes and writes
- * through write_bytes and write_bit; check_count counts the writes. `buffer`
- * is the content, for the assertions only.
+ * through write_bytes and write_bit, in a transaction for a batch write;
+ * check_count counts the writes. `buffer` is the content, for the assertions only.
  */
 function fake_block(size) {
 	const buffer = Buffer.alloc(size);
@@ -30,6 +30,15 @@ function fake_block(size) {
 		write_bit(offset, mask, value) {
 			buffer[offset] = value ? buffer[offset] | mask : buffer[offset] & ~mask;
 			this.check_count++;
+		},
+		transaction(fn) {
+			const saved = Buffer.from(buffer);
+			try {
+				return fn();
+			} catch (error) {
+				saved.copy(buffer);
+				throw error;
+			}
 		},
 	};
 }
@@ -86,26 +95,7 @@ describe("create_tcp_server", () => {
 
 		assert.equal(data.buffer.readUInt16BE(6), 0xbeef);
 		assert.deepEqual(data.buffer.subarray(8, 12), Buffer.from([1, 2, 3, 4]));
-		assert.equal(data.check_count, 3); // one per register written
-	});
-
-	// A user may coalesce the notifications of one request with setImmediate:
-	// it relies on es-modbus calling the handler for every register of an
-	// FC 16 request within one synchronous call.
-	test("an FC 16 request writes all its registers in one synchronous call", async (t) => {
-		const { master, data } = await setup(t);
-		let turn_ended = false;
-		const turns = [];
-		const write_bytes = data.write_bytes;
-		data.write_bytes = function (offset, source) {
-			if (turns.length === 0) setImmediate(() => { turn_ended = true; });
-			turns.push(turn_ended);
-			write_bytes.call(this, offset, source);
-		};
-
-		assert.equal(await master.write([16, 2, 3], Buffer.from([1, 2, 3, 4, 5, 6]), UNIT), true);
-
-		assert.deepEqual(turns, [false, false, false]);
+		assert.equal(data.check_count, 2); // one for FC 6, one for the run of FC 16
 	});
 
 	test("coil addr maps to bit addr % 8 of byte addr >> 3", async (t) => {

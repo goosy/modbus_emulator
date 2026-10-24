@@ -28,13 +28,14 @@
 ## 2. Unit_Map 与 handler
 
 - `Unit_Map.attach_unit(unit_id, block, start, offset)` 把 Ldata 挂到某个单元的字节区间 `[start, start + size)`，一个单元可以挂多个 Ldata；`unit_ids` 列出已挂的单元号。
-- `create_handler(unit_map)` 返回 es-modbus 要求的 handler，方法名为 snake_case：`get_holding_register`、`get_input_register`、`set_holding_register`、`get_coil`（同时用于 FC 1 和 FC 2）、`set_coil`。handler 是 `EventEmitter`（`Object.assign(new EventEmitter(), methods)`）。
+- `create_handler(unit_map)` 返回 es-modbus 要求的 handler，方法名为 snake_case：`get_holding_register`、`get_input_register`、`set_holding_register`、`get_coil`（同时用于 FC 1 和 FC 2）、`set_coil`，以及批量写方法 `set_holding_registers` / `set_coils`：es-modbus 对一次 FC 16 / FC 15 请求只调用一次，传入全部值。handler 是 `EventEmitter`（`Object.assign(new EventEmitter(), methods)`）。
 - 寄存器 `addr` 对应字节 `addr * 2`，按大端用 Ldata 的 `read_bytes` 读取；线圈 `addr` 对应字节 `addr >> 3` 的第 `addr % 8` 位。
 - 写入经 Ldata 的 `write_bytes` / `write_bit`，由 Ldata 在每次写入后检测变化；Ldata 的字节不能以其他方式访问。
-- es-modbus 对每个寄存器或线圈各调用一次 handler，所以写一个寄存器是一次两字节的 `write_bytes`（字节取自共用的两字节数组，`write_bytes` 立即复制），读一个寄存器是一次两字节的 `read_bytes`。
+- 对逐点方法，es-modbus 对每个寄存器或线圈各调用一次 handler，所以 FC 6 写一个寄存器是一次两字节的 `write_bytes`（字节取自共用的两字节数组，`write_bytes` 立即复制），读一个寄存器是一次两字节的 `read_bytes`。
 - 未映射的地址读为 0 / false，写入被忽略；每个（类型、单元、地址）只发出一次 `unmapped`，避免轮询时淹没监听器。已报告的地址记在一个最多 1024 项的集合中（`MAX_UNMAPPED_REPORTS`），否则主站扫描整个地址空间时它会增长到 65536 × 3 × 256 项；集合满后发出一次 `unmapped_limit`，之后的地址既不发出也不记录。
 - 请求由 es-modbus 先行校验：handler 抛出异常时应答 0x04，es-modbus 在服务上发出 `handler_error`。
-- FC 16 请求在同一个同步调用中连续写多个寄存器；需要合并通知的调用方可以用 `setImmediate` 合并（有测试保证这一点）。
+- 批量写把请求切分为段：同一个块中偏移连续的相邻点为一段；未映射的点报告后跳过。写到的块在嵌套的 `transaction` 中写入，地址最高的块在最外层，内层先提交，事件因此按地址顺序发出。在最内层中，寄存器每段一次 `write_bytes`；线圈用 `write_bit`，每个字节按值各一次（置位的位、清零的位），因此 `access` 只报告被写的 Bool。同一个块被写到两次时只开一个事务。
+- 写入抛出异常时，全部事务回滚，异常交给 es-modbus（应答 0x04）。`transaction` 在提交时重新抛出监听器抛出的第一个异常；handler 在全部写入完成后捕获它，作为 `listener_error` 发出，载荷 `{ block, error }`，其余的块照常提交，主站收到正常应答。
 
 ## 3. 服务
 
