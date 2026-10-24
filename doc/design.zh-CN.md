@@ -41,9 +41,9 @@
 
 ## 3. 服务
 
-- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, handler })`：用 handler 创建 `Modbus_Server`，`unit_id` 取选项 `unit_ids`，缺省取 `unit_map.unit_ids`（es-modbus 在构造时把它复制为集合，所以服务的列表从创建起就与单元表相互独立：缺省值是那时单元表中的单元，`attach_unit` 从不改变它，只有服务的 `set_unit_ids` 能改变它。单元表与服务应答的单元有意分开：前者是数据，后者是服务的配置）；`rtu` 传给 es-modbus 的同名选项；`handler` 选项缺省时用 `create_handler` 建立。
+- `create_tcp_server(unit_map, { host, port, rtu, unit_ids, handler, name })`：用 handler 创建 `Modbus_Server`，`unit_id` 取选项 `unit_ids`，缺省取 `unit_map.unit_ids`（es-modbus 在构造时把它复制为集合，所以服务的列表从创建起就与单元表相互独立：缺省值是那时单元表中的单元，`attach_unit` 从不改变它，只有服务的 `set_unit_ids` 能改变它。单元表与服务应答的单元有意分开：前者是数据，后者是服务的配置）；`rtu` 传给 es-modbus 的同名选项；`handler` 选项缺省时用 `create_handler` 建立。
 - `Modbus_Emulator` 在建好单元表后只建立一个 handler（`emulator.handler`），传给它的全部服务：handler 只按单元表查找、没有其他状态，共用后“未映射地址”的警告在全部服务中合计只报告一次，而不是每个服务各报告一次。handler 依赖单元表并保存已报告地址的集合，所以不能放在模块顶层，否则同一进程内的多个模拟器会互相串用。
-- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler })`：`unit_ids` 同上；`port` 取串口路径，es-modbus 据此选 RTU 传输；构造时检查参数，`start()` 才打开串口，所以构造不需要硬件。
+- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, name })`：`unit_ids` 同上；`port` 取串口路径，es-modbus 据此选 RTU 传输；构造时检查参数，`start()` 才打开串口，所以构造不需要硬件。
 - 工厂不给服务添加监听器：服务的事件就是 es-modbus 原有的，由调用方监听，包括 `error`。
 
 ## 4. Modbus_Emulator

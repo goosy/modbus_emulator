@@ -55,7 +55,7 @@ async function start_server(t, options) {
 	const unit_map = new Unit_Map();
 	unit_map.attach_unit(UNIT, data, 0);
 	unit_map.attach_unit(UNIT, command, 400);
-	const server = create_tcp_server(HOST, 0, unit_map, options);
+	const server = create_tcp_server(unit_map, { host: HOST, port: 0, ...options });
 	await server.start();
 	t.after(() => server.stop());
 	return { server, port: listening_port(server), data, command };
@@ -150,7 +150,7 @@ describe("create_tcp_server", () => {
 		unit_map.attach_unit(UNIT, fake_block(8), 0);
 		unit_map.attach_unit(OTHER_UNIT, fake_block(8), 0);
 		const connect = async (unit_ids) => {
-			const server = create_tcp_server(HOST, 0, unit_map, { unit_ids });
+			const server = create_tcp_server(unit_map, { host: HOST, port: 0, unit_ids });
 			await server.start();
 			t.after(() => server.stop());
 			const master = new Modbus_Client(HOST, { port: listening_port(server), reconnect_time: 0 });
@@ -171,7 +171,7 @@ describe("create_tcp_server", () => {
 	test("the default unit_ids are the units of the map when the server is created", async (t) => {
 		const unit_map = new Unit_Map();
 		unit_map.attach_unit(UNIT, fake_block(8), 0);
-		const server = create_tcp_server(HOST, 0, unit_map);
+		const server = create_tcp_server(unit_map, { host: HOST, port: 0 });
 		await server.start();
 		t.after(() => server.stop());
 		const master = new Modbus_Client(HOST, { port: listening_port(server), reconnect_time: 0 });
@@ -222,7 +222,7 @@ describe("create_tcp_server", () => {
 	});
 
 	test("the name option names the server", () => {
-		const server = create_tcp_server(HOST, 0, new Unit_Map(), { name: "plant" });
+		const server = create_tcp_server(new Unit_Map(), { host: HOST, port: 0, name: "plant" });
 
 		assert.equal(server.name, "plant");
 	});
@@ -256,7 +256,7 @@ describe("create_rtu_server", () => {
 	test("an invalid serial setting or path throws", () => {
 		assert.throws(() => create_rtu_server("", new Unit_Map()), /Invalid serial port path/);
 		assert.throws(() => create_rtu_server("COM_TEST"), /unit_map is required/);
-		assert.throws(() => create_tcp_server(HOST, 1502), /unit_map is required/);
+		assert.throws(() => create_tcp_server(), /unit_map is required/);
 		assert.throws(() => create_rtu_server("COM_TEST", new Unit_Map(), { baud_rate: -1 }));
 	});
 });

@@ -41,7 +41,7 @@ modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
   - `stop()`：停止全部服务；
   - 布局注册：`register_layout` 每个进程只能成功一次。带有布局（`layouts`、`layouts_file` 或片段）的描述在构造时注册它们，所以每个进程只能构造一次，不论构造成功还是失败；描述有误时，改正后重启进程。要在同一进程中运行多个模拟器，或不动布局只重建模拟器（如换端口、主机），先用本包转发的 `register_layout` 一次注册全部布局，描述中不带布局、只引用布局名：这样的描述可以构造任意多次；
   - 描述文件不合法时抛出 `Error`，其 `errors` 属性列出全部违规项；文件无法读取也是其中一项。
-- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, handler, name })`：创建 Modbus TCP 服务，`host` 缺省 `0.0.0.0`、`port` 缺省 502，`unit_map` 必填；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
+- `create_tcp_server(unit_map, { host, port, rtu, unit_ids, handler, name })`：创建 Modbus TCP 服务，`host` 缺省 `0.0.0.0`、`port` 缺省 502，`unit_map` 必填；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, name })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
 - `name`：可选，`Modbus_Server` 的 `name`，在事件和错误中标明服务；es-modbus 的缺省值为 `Modbus_Server`；
 - `Unit_Map` / `create_handler(unit_map)`：单元表和 es-modbus 的服务端 handler，供不用描述文件的调用方（如控制器）自行组装。

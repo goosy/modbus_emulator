@@ -59,6 +59,10 @@ export interface Modbus_Handler extends EventEmitter {
 }
 
 export interface Server_Options {
+	/** The address to listen on; `0.0.0.0` by default. */
+	host?: string;
+	/** The port number; 502 by default, 0 lets the system choose one. */
+	port?: number;
 	rtu?: boolean;
 	unit_ids?: number[];
 	handler?: Modbus_Handler;
@@ -97,7 +101,7 @@ export class Unit_Map {
 }
 
 export function create_handler(unit_map: Unit_Map): Modbus_Handler;
-export function create_tcp_server(host: string | undefined, port: number | undefined, unit_map: Unit_Map, options?: Server_Options): Modbus_Server;
+export function create_tcp_server(unit_map: Unit_Map, options?: Server_Options): Modbus_Server;
 export function create_rtu_server(path: string, unit_map: Unit_Map, options?: Serial_Options): Modbus_Server;
 
 /**

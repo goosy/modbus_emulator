@@ -47,7 +47,7 @@ function make_unit() {
 /** Serves a unit of make_unit and returns a master of it. */
 async function serve(t) {
 	const unit = make_unit();
-	const server = create_tcp_server(HOST, 0, unit.unit_map, { handler: unit.handler });
+	const server = create_tcp_server(unit.unit_map, { host: HOST, port: 0, handler: unit.handler });
 	await server.start();
 	t.after(() => server.stop());
 	const master = new Modbus_Client(HOST, { port: listening_port(server), reconnect_time: 0 });

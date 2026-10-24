@@ -303,7 +303,7 @@ export class Modbus_Emulator extends EventEmitter {
 		if (protocol === "rtu") {
 			return create_rtu_server(port, this.unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, name });
 		}
-		return create_tcp_server(host, port, this.unit_map, { rtu: protocol === "rtu_over_tcp", unit_ids, handler, name });
+		return create_tcp_server(this.unit_map, { host, port, rtu: protocol === "rtu_over_tcp", unit_ids, handler, name });
 	}
 
 	/**

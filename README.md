@@ -68,7 +68,7 @@ const pump = new Ldata("PUMP", "pump_1");
 const unit_map = new Unit_Map();
 unit_map.attach_unit(1, pump, 0, 0);
 
-const server = create_tcp_server("0.0.0.0", 1502, unit_map);
+const server = create_tcp_server(unit_map, { port: 1502 });
 await server.start();
 ```
 
