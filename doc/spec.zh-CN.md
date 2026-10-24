@@ -35,13 +35,14 @@ modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 ## 4. 接口
 
 - `Modbus_Emulator(source)`：主构造方法，`source` 是描述文件的路径（§5），或路径列表：多个文件作为同一份描述一并读取；建立数据块和服务；
-  - `blocks`：数据块名到 Ldata 的映射；`block(name)` 取得一个数据块；`unit_map`：单元表；`servers`：服务实例；`layouts`：已注册的布局（按名称，只读）；`handler`：全部服务共用的 handler；`warnings`：构造时发现的诊断信息（字符串），构造函数返回前无法挂监听器，所以收在这里；没有时为空；
-  - `start(options)`：启动全部服务。缺省为全部或全部不：任一服务启动失败时停掉全部服务，因此 `start()` 成功即全部在运行，失败即全部已停止；`{ partial: true }` 时尽力启动，已启动的服务保持运行。两种模式下有失败都以 `AggregateError` 拒绝，列出全部失败的服务：每项是一个 `Error`，消息标明服务，如 `servers[1] (modbus://0.0.0.0:503): ...`，原始错误放在 `cause`；
+  - `blocks`：数据块名到 Ldata 的映射；`block(name)` 取得一个数据块；`unit_map`：单元表；`servers`：服务实例，一个数组，第 `i` 项对应描述（各文件按顺序连接后）中的第 `i` 个服务条目；每个服务的 `name` 是它的标签，即它在描述中的位置和地址，如 `servers[1] (modbus://0.0.0.0:503)`，因此可以按名称查找（`servers.find((server) => server.name === ...)`）；`layouts`：已注册的布局（按名称，只读）；`handler`：全部服务共用的 handler；`warnings`：构造时发现的诊断信息（字符串），构造函数返回前无法挂监听器，所以收在这里；没有时为空；
+  - `start(options)`：启动全部服务。缺省为全部或全部不：任一服务启动失败时停掉全部服务，因此 `start()` 成功即全部在运行，失败即全部已停止；`{ partial: true }` 时尽力启动，已启动的服务保持运行。两种模式下有失败都以 `AggregateError` 拒绝，列出全部失败的服务：每项是一个 `Error`，消息以服务的 `name` 开头，如 `servers[1] (modbus://0.0.0.0:503): ...`，原始错误放在 `cause`；
   - `stop()`：停止全部服务；
   - 布局注册：`register_layout` 每个进程只能成功一次。带有布局（`layouts`、`layouts_file` 或片段）的描述在构造时注册它们，所以每个进程只能构造一次，不论构造成功还是失败；描述有误时，改正后重启进程。要在同一进程中运行多个模拟器，或不动布局只重建模拟器（如换端口、主机），先用本包转发的 `register_layout` 一次注册全部布局，描述中不带布局、只引用布局名：这样的描述可以构造任意多次；
   - 描述文件不合法时抛出 `Error`，其 `errors` 属性列出全部违规项；文件无法读取也是其中一项。
-- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, handler })`：创建 Modbus TCP 服务，`host` 缺省 `0.0.0.0`、`port` 缺省 502，`unit_map` 必填；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
-- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
+- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, handler, name })`：创建 Modbus TCP 服务，`host` 缺省 `0.0.0.0`、`port` 缺省 502，`unit_map` 必填；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
+- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, name })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
+- `name`：可选，`Modbus_Server` 的 `name`，在事件和错误中标明服务；es-modbus 的缺省值为 `Modbus_Server`；
 - `Unit_Map` / `create_handler(unit_map)`：单元表和 es-modbus 的服务端 handler，供不用描述文件的调用方（如控制器）自行组装。
   - `attach_unit(unit_id, block, start, offset)` 把数据块从其字节 `offset` 起放到单元的字节 `start` 处；两者缺省为 0，须为偶数非负整数，否则抛出 `RangeError`；同一单元内各数据块的字节区间不得重叠，重叠时抛出 `Error`，指明两个数据块；
   - `unit_ids`：有数据块的单元，按首次挂载的顺序；`segments(unit_id)`：单元的字节区间（`{ block, start, offset, end }`），按 `start` 排序，没有数据块的单元为空；`resolve(unit_id, byte)`：单元中某个字节所在的数据块及块内字节偏移（`{ block, offset }`），未映射时为 null。
@@ -61,9 +62,9 @@ modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
   | `unmapped_limit` | `{ limit }` | 已发出第 1024 个地址，之后的未映射地址不再发出 |
   | `listener_error` | `{ block, error }` | 提交一次请求时块的监听器（`change`、`write`、`access`）抛出异常；数据保持写入，主站照常收到应答 |
 
-- 服务是 es-modbus 的 `Modbus_Server`，事件为 es-modbus 原有的：`start`、`stop`、`socket_connect`（socket）、`socket_disconnect`（socket）、`socket_error`（error）、`error`（error）、`handler_error`（error）。工厂不添加监听器。`EventEmitter` 在 `error` 事件无监听器时会抛出异常，所以直接使用工厂的调用方须自行监听每个服务的 `error`。
+- 服务是 es-modbus 的 `Modbus_Server`，事件为 es-modbus 原有的：`start`、`stop`、`socket_connect`（socket）、`socket_disconnect`（socket）、`socket_error`（error）、`error`（error）、`handler_error`（error）、`receive`（请求帧）、`send`（应答帧）。工厂不添加监听器。`EventEmitter` 在 `error` 事件无监听器时会抛出异常，所以直接使用工厂的调用方须自行监听每个服务的 `error`。
 - handler 抛出异常或返回无效值（批量读的长度不符、寄存器值越界）时，由 es-modbus 作为 `handler_error` 报告，主站收到异常码 0x04。
-- `Modbus_Emulator` 是 `EventEmitter`：把每个服务的事件 `<name>` 转发为 `server_<name>`（`server_start`、`server_stop`、`server_socket_connect`、`server_socket_disconnect`、`server_socket_error`、`server_error`、`server_handler_error`），载荷为 `{ server, label }`，es-modbus 带有参数时再加 `socket` 或 `error`；`label` 是服务的标签，与 `start()` 报错中的相同，如 `servers[1] (modbus://0.0.0.0:503)`。handler 的事件按原名、原载荷转发。模拟器始终监听其服务的 `error`，自身从不发出 `error`。
+- `Modbus_Emulator` 是 `EventEmitter`：把每个服务的事件 `<name>` 转发为 `server_<name>`（`server_start`、`server_stop`、`server_socket_connect`、`server_socket_disconnect`、`server_socket_error`、`server_error`、`server_handler_error`、`server_receive`、`server_send`），载荷为 `{ server }`，es-modbus 带有参数时再加 `socket`、`error` 或 `frame`；由 `server.name` 得知来自哪个服务。handler 的事件按原名、原载荷转发。模拟器始终监听其服务的 `error`，自身从不发出 `error`。
 
 ## 5. 描述文件
 

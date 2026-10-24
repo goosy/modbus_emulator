@@ -129,17 +129,17 @@ describe("batch writes", () => {
 		assert.deepEqual([a.r, a.n, b.r, b.n], [1234.5, 9, -2, 8]);
 	});
 
-	test("the unmapped registers of a batch write are skipped and reported", () => {
-		const warnings = [];
-		const unit = make_unit();
-		const handler = create_handler(unit.unit_map, { logger: { warn: (message) => warnings.push(message) } });
+	test("the unmapped registers of a batch write are skipped and emitted", () => {
+		const unmapped = [];
+		const { b, handler } = make_unit();
+		handler.on("unmapped", (event) => unmapped.push(event));
 
 		handler.set_holding_registers(6, [1, 2, 3, 4], UNIT); // registers 6, 7 of b, then 8, 9 unmapped
 
-		assert.equal(unit.b.read_bytes(4, 4).readUInt32BE(0), 0x0001_0002);
-		assert.deepEqual(warnings, [
-			"unmapped holding register address 8 in unit 1",
-			"unmapped holding register address 9 in unit 1",
+		assert.equal(b.read_bytes(4, 4).readUInt32BE(0), 0x0001_0002);
+		assert.deepEqual(unmapped, [
+			{ kind: "holding_register", unit_id: UNIT, addr: 8 },
+			{ kind: "holding_register", unit_id: UNIT, addr: 9 },
 		]);
 	});
 });
@@ -188,16 +188,16 @@ describe("batch reads", () => {
 		assert.deepEqual(errors, ["a: listener of a"]);
 	});
 
-	test("the unmapped registers and coils of a batch read read as 0 and are reported", () => {
-		const warnings = [];
-		const unit = make_unit();
-		const handler = create_handler(unit.unit_map, { logger: { warn: (message) => warnings.push(message) } });
+	test("the unmapped registers and coils of a batch read read as 0 and are emitted", () => {
+		const unmapped = [];
+		const { handler } = make_unit();
+		handler.on("unmapped", (event) => unmapped.push(event));
 
 		assert.deepEqual(handler.get_holding_registers(6, 3, UNIT), [7, 0, 0]); // b.n, the Bools of b, then register 8
 		assert.deepEqual(handler.get_coils(127, 2, UNIT), [false, false]); // coil 127 of b (b.c2), then 128
-		assert.deepEqual(warnings, [
-			"unmapped holding register address 8 in unit 1",
-			"unmapped coil address 128 in unit 1",
+		assert.deepEqual(unmapped, [
+			{ kind: "holding_register", unit_id: UNIT, addr: 8 },
+			{ kind: "coil", unit_id: UNIT, addr: 128 },
 		]);
 	});
 });

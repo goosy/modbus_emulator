@@ -1,40 +1,10 @@
 import { Modbus_Server } from "es-modbus";
 import { create_handler } from "./unit_map.js";
 
-/** A logger that has the three levels used here, whatever the given one lacks is silent. */
-export function normalize_logger(logger) {
-	const level = (name) => (message) => logger?.[name]?.(message);
-	return { info: level("info"), warn: level("warn"), error: level("error") };
-}
-
-/** Reports the events of a server through the logger. */
-function log_events(server, label, logger) {
-	server.on("start", () => {
-		logger.info(`Modbus server listening on ${label}`);
-	});
-	server.on("socket_error", (err) => {
-		logger.error(`client error: ${err.message}`);
-	});
-	server.on("socket_connect", (socket) => {
-		logger.info(`client connected: ${socket.remoteAddress}:${socket.remotePort}`);
-	});
-	server.on("socket_disconnect", (socket) => {
-		logger.info(`client disconnected: ${socket.remoteAddress}:${socket.remotePort}`);
-	});
-	server.on("error", (err) => {
-		logger.error(`server error: ${err.message}`);
-	});
-	server.on("handler_error", (err) => {
-		logger.error(`server request failed: ${err.message}`);
-	});
-	server.on("stop", () => {
-		logger.info(`Modbus server ${label} stopped`);
-	});
-}
-
 /**
  * Creates a Modbus TCP server, or an RTU-over-TCP server with `rtu: true`.
- * The server is not started: call `server.start()`.
+ * The server is not started: call `server.start()`. No listener is added to it: listen to its
+ * `error` event at least, which throws when it has no listener.
  *
  * @param {string} host - The address to listen on, default 0.0.0.0.
  * @param {number} port - The port number, default 502.
@@ -43,22 +13,20 @@ function log_events(server, label, logger) {
  * @param {boolean} [options.rtu=false] - Use RTU framing on the accepted sockets (RTU-over-TCP).
  * @param {number[]} [options.unit_ids] - The unit ids this server answers; every unit of the unit map when omitted.
  * @param {Object} [options.handler] - The handler to serve, from `create_handler`; servers of one unit map can share it. Built from the unit map when omitted.
- * @param {{info: Function, warn: Function, error: Function}} [options.logger] - Silent by default.
+ * @param {string} [options.name] - The name of the server, which identifies it in events and errors; `Modbus_Server` by default.
  * @return {import('es-modbus').Modbus_Server} The server instance.
  */
-export function create_tcp_server(host = "0.0.0.0", port = 502, unit_map, { rtu = false, unit_ids: _unit_ids, handler: _handler, logger: _logger } = {}) {
-	const logger = normalize_logger(_logger);
+export function create_tcp_server(host = "0.0.0.0", port = 502, unit_map, { rtu = false, unit_ids: _unit_ids, handler: _handler, name } = {}) {
 	if (unit_map === undefined || unit_map === null) throw new Error("unit_map is required");
 	const unit_ids = _unit_ids ?? unit_map.unit_ids;
-	const handler = _handler ?? create_handler(unit_map, { logger });
-	const server = new Modbus_Server(handler, { host, port, rtu, unit_id: unit_ids });
-	log_events(server, `${rtu ? "rtu" : "modbus"}://${host}:${port}`, logger);
-	return server;
+	const handler = _handler ?? create_handler(unit_map);
+	return new Modbus_Server(handler, { host, port, rtu, unit_id: unit_ids, name });
 }
 
 /**
  * Creates a Modbus RTU slave on a serial port.
- * The server is not started: call `server.start()`, which opens the port.
+ * The server is not started: call `server.start()`, which opens the port. No listener is added
+ * to it: listen to its `error` event at least, which throws when it has no listener.
  *
  * @param {string} path - The serial device path, e.g. COM3 or /dev/ttyUSB0.
  * @param {Unit_Map} unit_map - The data blocks served per unit id.
@@ -69,19 +37,16 @@ export function create_tcp_server(host = "0.0.0.0", port = 502, unit_map, { rtu 
  * @param {number} [options.stop_bits=1]
  * @param {number[]} [options.unit_ids] - The unit ids this server answers; every unit of the unit map when omitted.
  * @param {Object} [options.handler] - The handler to serve, from `create_handler`; servers of one unit map can share it. Built from the unit map when omitted.
- * @param {{info: Function, warn: Function, error: Function}} [options.logger] - Silent by default.
+ * @param {string} [options.name] - The name of the server, which identifies it in events and errors; `Modbus_Server` by default.
  * @return {import('es-modbus').Modbus_Server} The server instance.
  */
-export function create_rtu_server(path, unit_map, { unit_ids: _unit_ids, handler: _handler, logger: _logger, ...serial } = {}) {
-	const logger = normalize_logger(_logger);
+export function create_rtu_server(path, unit_map, { unit_ids: _unit_ids, handler: _handler, name, ...serial } = {}) {
 	if (typeof path !== "string" || path === "") throw new Error(`Invalid serial port path: ${path}`);
 	if (unit_map === undefined || unit_map === null) throw new Error("unit_map is required");
 	const unit_ids = _unit_ids ?? unit_map.unit_ids;
 	const { baud_rate, parity, data_bits, stop_bits } = serial;
-	const handler = _handler ?? create_handler(unit_map, { logger });
-	const server = new Modbus_Server(handler, {
-		port: path, baud_rate, parity, data_bits, stop_bits, unit_id: unit_ids,
+	const handler = _handler ?? create_handler(unit_map);
+	return new Modbus_Server(handler, {
+		port: path, baud_rate, parity, data_bits, stop_bits, unit_id: unit_ids, name,
 	});
-	log_events(server, `serial://${path}`, logger);
-	return server;
 }

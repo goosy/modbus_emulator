@@ -422,15 +422,16 @@ servers:
 		await assert.rejects(tcp.read([3, 0, 1], 2), { message: "response error: 11" });
 	});
 
-	test("all the servers share one handler and the unmapped warning is reported once", async (t) => {
-		const warnings = [];
+	test("all the servers share one handler and the unmapped address is emitted once", async (t) => {
+		const unmapped = [];
 		const emulator = make(`
 blocks:
   - { name: a, unit_id: 1, layout: PUMP }
 servers:
   - { protocol: tcp, host: ${HOST}, port: 0 }
   - { protocol: tcp, host: ${HOST}, port: 0 }
-`, { logger: { warn: (message) => warnings.push(message) } });
+`);
+		emulator.on("unmapped", (event) => unmapped.push(event));
 		await emulator.start();
 		t.after(() => emulator.stop());
 		const masters = emulator.servers.map(listening_port).map((port) => {
@@ -443,7 +444,50 @@ servers:
 		for (const master of masters) await master.read([3, 1000, 1], 1);
 
 		assert.ok(emulator.handler);
-		assert.equal(warnings.length, 1);
+		assert.deepEqual(unmapped, [{ kind: "holding_register", unit_id: 1, addr: 1000 }]);
+	});
+
+	test("the server events are forwarded with the server, named by its label", async () => {
+		const events = [];
+		const emulator = make(`
+blocks:
+  - { name: a, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp, host: ${HOST}, port: 0 }
+`);
+		const [server] = emulator.servers;
+		for (const name of ["server_start", "server_socket_connect", "server_receive", "server_send", "server_stop"]) {
+			emulator.on(name, (event) => events.push([name, event]));
+		}
+		await emulator.start();
+		const master = new Modbus_Client(HOST, { port: listening_port(server), reconnect_time: 0 });
+		master.on("error", () => { });
+		await master.read([3, 0, 1], 1);
+		master.disconnect();
+		await emulator.stop();
+
+		assert.equal(server.name, `servers[0] (modbus://${HOST}:0)`);
+		assert.deepEqual(events.map(([name]) => name), ["server_start", "server_socket_connect", "server_receive", "server_send", "server_stop"]);
+		assert.ok(events.every(([, event]) => event.server === server));
+		assert.ok(Buffer.isBuffer(events[2][1].frame) && Buffer.isBuffer(events[3][1].frame));
+		assert.ok(events[1][1].socket);
+	});
+
+	test("an error of a server is forwarded as server_error and never thrown", () => {
+		const errors = [];
+		const emulator = make(`
+blocks:
+  - { name: a, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp, host: ${HOST}, port: 0 }
+`);
+		const failure = new Error("boom");
+
+		emulator.servers[0].emit("error", failure);
+		emulator.on("server_error", (event) => errors.push(event));
+		emulator.servers[0].emit("error", failure);
+
+		assert.deepEqual(errors, [{ server: emulator.servers[0], error: failure }]);
 	});
 
 	test("the emulator can be stopped and started again", async (t) => {

@@ -1,4 +1,6 @@
+import type { Buffer } from "node:buffer";
 import type { EventEmitter } from "node:events";
+import type { Socket } from "node:net";
 import type { Ldata, Layout } from "layout-data";
 
 export { Ldata, Ltag, register_layout, get_layout, io_index_table, render_types } from "layout-data";
@@ -9,15 +11,30 @@ export type {
 
 /** A Modbus slave service (the server of es-modbus, a dependency of this package). */
 export interface Modbus_Server extends EventEmitter {
+	/** Identifies the server in events and errors; the label of its service in an emulator. */
+	readonly name: string;
 	start(): Promise<unknown>;
 	stop(): Promise<unknown>;
 	/** Sets the unit ids the server answers: one, a list, or every id with `"all"` / `"*"` / null. */
 	set_unit_ids(unit_id: number | number[] | "all" | "*" | null | undefined): void;
 }
 
+/** An address that no block holds, emitted once per (kind, unit, address). */
+export interface Unmapped_Event {
+	kind: "holding_register" | "input_register" | "coil";
+	unit_id: number;
+	addr: number;
+}
+
+/** An error a listener of a block throws when a request commits; the data stay written. */
+export interface Listener_Error_Event {
+	block: Ldata;
+	error: unknown;
+}
+
 /**
- * The es-modbus server handler over a unit map (see `create_handler`). It emits `listener_error`
- * for an error a block listener throws when a batch request commits.
+ * The es-modbus server handler over a unit map (see `create_handler`). It emits `unmapped` once per
+ * unmapped address, for at most 1024 addresses, then `unmapped_limit` once, and `listener_error`.
  */
 export interface Modbus_Handler extends EventEmitter {
 	get_holding_register(addr: number, unit_id: number): number;
@@ -35,20 +52,18 @@ export interface Modbus_Handler extends EventEmitter {
 	set_coil(addr: number, value: boolean, unit_id: number): void;
 	/** Writes the coils of one FC 15 request atomically. */
 	set_coils(addr: number, values: boolean[], unit_id: number): void;
-	on(event: "listener_error", listener: (event: { block: Ldata, error: unknown }) => void): this;
-}
-
-export interface Emulator_Logger {
-	info?: (message: string) => void;
-	warn?: (message: string) => void;
-	error?: (message: string) => void;
+	on(event: "unmapped", listener: (event: Unmapped_Event) => void): this;
+	on(event: "unmapped_limit", listener: (event: { limit: number }) => void): this;
+	on(event: "listener_error", listener: (event: Listener_Error_Event) => void): this;
+	on(event: string | symbol, listener: (...args: any[]) => void): this;
 }
 
 export interface Server_Options {
 	rtu?: boolean;
 	unit_ids?: number[];
 	handler?: Modbus_Handler;
-	logger?: Emulator_Logger;
+	/** The name of the server; `Modbus_Server` by default. */
+	name?: string;
 }
 
 export interface Serial_Options {
@@ -58,7 +73,8 @@ export interface Serial_Options {
 	stop_bits?: number;
 	unit_ids?: number[];
 	handler?: Modbus_Handler;
-	logger?: Emulator_Logger;
+	/** The name of the server; `Modbus_Server` by default. */
+	name?: string;
 }
 
 /** A byte range [start, end) of a unit, mapped to the bytes of a block from `offset`. */
@@ -80,19 +96,42 @@ export class Unit_Map {
 	attach_unit(unit_id: number, block: Ldata, start?: number, offset?: number): void;
 }
 
-export function create_handler(unit_map: Unit_Map, options?: { logger?: Emulator_Logger }): Modbus_Handler;
+export function create_handler(unit_map: Unit_Map): Modbus_Handler;
 export function create_tcp_server(host: string | undefined, port: number | undefined, unit_map: Unit_Map, options?: Server_Options): Modbus_Server;
 export function create_rtu_server(path: string, unit_map: Unit_Map, options?: Serial_Options): Modbus_Server;
 
-export class Modbus_Emulator {
-	constructor(source: string | string[], options?: {
-		logger?: Emulator_Logger;
-	});
+/**
+ * The payload of a forwarded server event `server_<name>`: the server, whose `name` tells the service,
+ * and the argument es-modbus passed, if any.
+ */
+export interface Server_Event {
+	server: Modbus_Server;
+	/** For `server_socket_connect` and `server_socket_disconnect`. */
+	socket?: Socket;
+	/** For `server_socket_error`, `server_error` and `server_handler_error`. */
+	error?: Error;
+	/** For `server_receive` (the request frame) and `server_send` (the response frame). */
+	frame?: Buffer;
+}
+
+export type Server_Event_Name =
+	| "server_start" | "server_stop" | "server_socket_connect" | "server_socket_disconnect" | "server_socket_error"
+	| "server_error" | "server_handler_error" | "server_receive" | "server_send";
+
+/**
+ * The emulator forwards the events of its servers as `server_<name>`, and the events of its handler unchanged.
+ * It never emits `error`.
+ */
+export class Modbus_Emulator extends EventEmitter {
+	constructor(source: string | string[]);
 	unit_map: Unit_Map;
 	handler: Modbus_Handler;
 	blocks: Map<string, Ldata>;
 	layouts: Record<string, Layout>;
+	/** Item `i` is the service entry `i` of the description, named by its label. */
 	servers: Modbus_Server[];
+	/** The diagnostics found at construction. */
+	warnings: string[];
 	block(name: string): Ldata | undefined;
 	/**
 	 * Starts all the servers. When any fails, rejects with an `AggregateError` of every failure, after stopping all
@@ -100,4 +139,9 @@ export class Modbus_Emulator {
 	 */
 	start(options?: { partial?: boolean }): Promise<void>;
 	stop(): Promise<void>;
+	on(event: Server_Event_Name, listener: (event: Server_Event) => void): this;
+	on(event: "unmapped", listener: (event: Unmapped_Event) => void): this;
+	on(event: "unmapped_limit", listener: (event: { limit: number }) => void): this;
+	on(event: "listener_error", listener: (event: Listener_Error_Event) => void): this;
+	on(event: string | symbol, listener: (...args: any[]) => void): this;
 }

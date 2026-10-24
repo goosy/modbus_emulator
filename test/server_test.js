@@ -192,10 +192,10 @@ describe("create_tcp_server", () => {
 		assert.equal(server.protocol, "tcp");
 	});
 
-	test("the logger receives the unmapped address warning once", async (t) => {
-		const warnings = [];
-		const logger = { warn: (message) => warnings.push(message) };
-		const ctx = await start_server(t, { logger });
+	test("the handler emits an unmapped address once", async (t) => {
+		const unmapped = [];
+		const ctx = await start_server(t);
+		ctx.server.handler.on("unmapped", (event) => unmapped.push(event));
 		const master = new Modbus_Client(HOST, { port: ctx.port, reconnect_time: 0 });
 		master.on("error", () => { });
 		t.after(() => master.disconnect());
@@ -203,20 +203,28 @@ describe("create_tcp_server", () => {
 		await master.read([3, 100, 1], UNIT);
 		await master.read([3, 100, 1], UNIT);
 
-		assert.equal(warnings.length, 1);
-		assert.match(warnings[0], /unmapped holding register address 100 in unit 5/);
+		assert.deepEqual(unmapped, [{ kind: "holding_register", unit_id: UNIT, addr: 100 }]);
 	});
 
-	test("the unmapped address warning stops after 1024 addresses", () => {
-		const warnings = [];
-		const handler = create_handler(new Unit_Map(), { logger: { warn: (message) => warnings.push(message) } });
+	test("the unmapped addresses stop after 1024, with one unmapped_limit", () => {
+		const unmapped = [];
+		const limits = [];
+		const handler = create_handler(new Unit_Map());
+		handler.on("unmapped", (event) => unmapped.push(event));
+		handler.on("unmapped_limit", (event) => limits.push(event));
 
 		for (let addr = 0; addr < 1100; addr++) handler.get_holding_register(addr, UNIT);
 		handler.get_holding_register(0, UNIT);
 
-		assert.equal(warnings.length, 1025);
-		assert.match(warnings[1023], /unmapped holding register address 1023 in unit 5/);
-		assert.match(warnings[1024], /1024 unmapped addresses reported, further ones are not reported/);
+		assert.equal(unmapped.length, 1024);
+		assert.deepEqual(unmapped[1023], { kind: "holding_register", unit_id: UNIT, addr: 1023 });
+		assert.deepEqual(limits, [{ limit: 1024 }]);
+	});
+
+	test("the name option names the server", () => {
+		const server = create_tcp_server(HOST, 0, new Unit_Map(), { name: "plant" });
+
+		assert.equal(server.name, "plant");
 	});
 });
 

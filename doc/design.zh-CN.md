@@ -52,9 +52,9 @@
 - 校验收集全部违规项后一次抛出：无法读取的文件、布局错误、数据块（未知键、`name` 的类型、`unit_id` 范围、`start` 与 `offset` 为偶数、名称重复、布局是否存在，以及同一单元内字节区间的重叠：即 `attach_unit` 的错误，前缀为该数据块条目）、服务（按协议检查未知键、协议、端口范围、`rtu` 的串口参数（取值与 es-modbus 接受的一致）、端口已被前面的服务使用、`unit_ids` 的格式，以及其中的单元号是否有数据块，后者在数据块读完后检查）。布局注册失败时，layout-data 一个布局也不注册，因此不检查数据块的布局是否存在：否则每个数据块都会重复报错，淹没真正的错误。
 - 每个数据块创建一个 Ldata 并挂到单元表；描述中的布局（若有）由模拟器注册（`register_layout` 每个进程只能成功调用一次，所以带布局的描述每进程只构造一次，只引用事先注册的布局的描述可以构造任意多次），数据块按布局名创建（`new Ldata(布局名, 数据块名)`）；每个服务创建一个 `Modbus_Server`，共用同一单元表。
 - `start(options)` 并行启动全部服务，用 `Promise.allSettled` 等每个服务都有结果后再处理失败。它依赖 es-modbus 的这些行为：同一服务的 `start` / `stop` 在内部排队执行；`stop()` 等前面的 `start` 结束后才执行，且从不 reject；对没有启动过的服务调用 `stop()` 立即返回；对运行中的服务调用 `start()` 会先停再启。因此缺省模式下有失败就对全部服务调用 `stop()`，包括调用前已在运行的服务（对它们而言 `start()` 本就是重启），然后抛出；`partial` 模式下已启动的服务保持运行。两种模式抛出同样的 `AggregateError`，失败不会被忽略，只在“是否停掉其他服务”上不同。
-- 服务标签在构造时保存：服务在描述中的位置（`servers[i]`，有多个文件时带文件名前缀）和地址（`modbus://host:port`、`rtu://host:port`、`serial://path`），用于在 `start()` 的错误和转发的服务事件载荷中标明服务。
+- 服务标签，即服务在描述中的位置（`servers[i]`，有多个文件时带文件名前缀）和地址（`modbus://host:port`、`rtu://host:port`、`serial://path`），作为 es-modbus 的 `name` 选项交给服务。此后由服务自己携带：`start()` 的错误和转发事件的监听器都读取 `server.name`，模拟器不再另存一份标签列表。
 - `stop()` 用 `Promise.all` 并行停止全部服务。
-- 事件：`Modbus_Emulator` 继承 `EventEmitter`。建立服务后订阅它的 es-modbus 事件，把每个 `<name>` 以 `server_<name>` 重新发出，载荷为 `{ server, label }`，再加上 `socket` 或 `error` 参数；订阅 handler 的事件并原样重新发出。它对 `error` 的监听使服务的错误不会抛出，它自身也不发出 `error`，所以没有监听器的模拟器不会因事件而抛出异常。
+- 事件：`Modbus_Emulator` 继承 `EventEmitter`。建立服务后订阅它的 es-modbus 事件，把每个 `<name>` 以 `server_<name>` 重新发出，载荷为 `{ server }`，再加上 `socket`、`error` 或 `frame` 参数；订阅 handler 的事件并原样重新发出。它对 `error` 的监听使服务的错误不会抛出，它自身也不发出 `error`，所以没有监听器的模拟器不会因事件而抛出异常。
 - 构造期发现的诊断信息发生在调用方能挂监听器之前，所以不发出事件，而是收入 `warnings`（字符串数组）。
 
 ## 5. 构建与测试

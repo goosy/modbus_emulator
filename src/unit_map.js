@@ -6,8 +6,6 @@
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
 
-const SILENT_LOGGER = { warn() { } };
-
 // the most unmapped addresses reported by a handler, which bounds the set that remembers them
 const MAX_UNMAPPED_REPORTS = 1024;
 
@@ -94,27 +92,24 @@ const in_transactions = (blocks, fn, report) => {
  * Creates the es-modbus server handler that serves the data blocks of a unit map.
  *
  * @param {Unit_Map} unit_map - The data blocks attached per unit id.
- * @param {Object} [options]
- * @param {{warn: (message: string) => void}} [options.logger] - Reports unmapped addresses; silent by default.
  * @return {EventEmitter} The handler: get_input_register, get_holding_register, set_holding_register,
  *   get_coil, set_coil, and the batch methods get_input_registers, get_holding_registers, get_coils,
- *   set_holding_registers, set_coils. It emits `listener_error` with `{ block, error }` for an error
- *   a block listener throws when a batch request commits.
+ *   set_holding_registers, set_coils. It emits `unmapped` with `{ kind, unit_id, addr }` once per unmapped
+ *   address, `unmapped_limit` with `{ limit }` when no further one is emitted, and `listener_error` with
+ *   `{ block, error }` for an error a block listener throws when a batch request commits.
  */
-export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
+export function create_handler(unit_map) {
 	// An unmapped address (e.g. the gap between two data blocks of a unit)
 	// reads as 0 and ignores writes, so that a block read spanning the gap
-	// still succeeds. Each one is logged once, up to MAX_UNMAPPED_REPORTS of them.
+	// still succeeds. Each one is emitted once, up to MAX_UNMAPPED_REPORTS of them.
 	const reported = new Set();
 	const report_unmapped = (kind, addr, unit_id) => {
 		const key = `${kind}:${unit_id}:${addr}`;
 		if (reported.has(key)) return;
 		if (reported.size >= MAX_UNMAPPED_REPORTS) return;
 		reported.add(key);
-		logger.warn?.(`unmapped ${kind} address ${addr} in unit ${unit_id}`);
-		if (reported.size === MAX_UNMAPPED_REPORTS) {
-			logger.warn?.(`${MAX_UNMAPPED_REPORTS} unmapped addresses reported, further ones are not reported`);
-		}
+		handler.emit("unmapped", { kind, unit_id, addr });
+		if (reported.size === MAX_UNMAPPED_REPORTS) handler.emit("unmapped_limit", { limit: MAX_UNMAPPED_REPORTS });
 	};
 
 	const read_register = (kind) => (addr, unit_id) => {
@@ -143,14 +138,14 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 	};
 
 	const handler = Object.assign(new EventEmitter(), {
-		get_input_register: read_register("input register"),
-		get_holding_register: read_register("holding register"),
-		get_input_registers: read_registers("input register"),
-		get_holding_registers: read_registers("holding register"),
+		get_input_register: read_register("input_register"),
+		get_holding_register: read_register("holding_register"),
+		get_input_registers: read_registers("input_register"),
+		get_holding_registers: read_registers("holding_register"),
 		set_holding_register: (addr, value, unit_id) => {
 			const { block, offset } = get_register_info(addr, unit_map, unit_id);
 			if (block == null) {
-				report_unmapped("holding register", addr, unit_id);
+				report_unmapped("holding_register", addr, unit_id);
 				return;
 			}
 			REGISTER_BYTES[0] = value >> 8;
@@ -160,7 +155,7 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 
 		// one FC 16 request: written atomically, one write_bytes per run
 		set_holding_registers: (addr, values, unit_id) => {
-			const report = (unmapped) => report_unmapped("holding register", unmapped, unit_id);
+			const report = (unmapped) => report_unmapped("holding_register", unmapped, unit_id);
 			const runs = register_runs(addr, values.length, unit_map, unit_id, report);
 			in_transactions(blocks_of(runs), () => {
 				for (const { block, offset, index, count } of runs) {

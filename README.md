@@ -74,7 +74,22 @@ await server.start();
 
 Take `Ldata` and `register_layout` from this package rather than from layout-data, so that there is one copy of layout-data in the process.
 
-`create_rtu_server(path, unit_map, options)` creates an RTU slave on a serial port. `create_handler(unit_map, { logger })` returns the es-modbus server handler for fully custom assembly.
+`create_rtu_server(path, unit_map, options)` creates an RTU slave on a serial port. `create_handler(unit_map)` returns the es-modbus server handler for fully custom assembly. The factories add no listener: listen to `error` of each server, which throws when it has no listener.
+
+### Events
+
+The package outputs nothing itself and reports through events:
+
+```js
+emulator.on("server_start", ({ server }) => console.log(`${server.name} started`));
+emulator.on("server_error", ({ server, error }) => console.error(`${server.name}: ${error.message}`));
+emulator.on("unmapped", ({ kind, unit_id, addr }) => console.warn(`unmapped ${kind} ${addr} in unit ${unit_id}`));
+```
+
+- The emulator forwards each event `<name>` of its servers as `server_<name>` with `{ server }` and the argument of the event (`socket`, `error` or `frame`); `server.name` is the label of the service, such as `servers[0] (modbus://0.0.0.0:1502)`.
+- The handler emits `unmapped` once per unmapped address (at most 1024, then `unmapped_limit` once) and `listener_error` when a block listener throws; the emulator forwards them.
+- The emulator always listens to `error` of its servers and never emits `error`, so it never throws from an event.
+- Diagnostics found at construction are in `emulator.warnings`.
 
 ## Address mapping
 

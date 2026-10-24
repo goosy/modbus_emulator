@@ -1,9 +1,10 @@
+import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parseDocument } from "yaml";
 import { Ldata, get_layout, register_layout } from "layout-data";
 import { Unit_Map, create_handler } from "./unit_map.js";
-import { create_tcp_server, create_rtu_server, normalize_logger } from "./server.js";
+import { create_tcp_server, create_rtu_server } from "./server.js";
 
 /** Whether a layout of the name is registered in layout-data. */
 function is_registered(name) {
@@ -20,6 +21,22 @@ const DATA_BITS = [5, 6, 7, 8];
 const STOP_BITS = [1, 1.5, 2];
 
 const PROTOCOLS = ["tcp", "rtu_over_tcp", "rtu"];
+
+// the events of an es-modbus server, forwarded as server_<name>, with the field of their argument
+const SERVER_EVENTS = {
+	start: null,
+	stop: null,
+	socket_connect: "socket",
+	socket_disconnect: "socket",
+	socket_error: "error",
+	error: "error",
+	handler_error: "error",
+	receive: "frame",
+	send: "frame",
+};
+
+// the events of the handler, forwarded unchanged
+const HANDLER_EVENTS = ["unmapped", "unmapped_limit", "listener_error"];
 const BLOCK_KEYS = ["name", "unit_id", "layout", "start", "offset"];
 const TCP_SERVER_KEYS = ["protocol", "unit_ids", "host", "port"];
 const SERVER_KEYS = {
@@ -48,9 +65,10 @@ function check_keys(entry, allowed, where, errors) {
  *
  * The data blocks are Ldata objects, available as `blocks` by name: a caller
  * reads and writes their tags to simulate the running of a device, and the
- * masters see the same data through the servers.
+ * masters see the same data through the servers. The emulator forwards the
+ * events of its servers and of its handler (doc/spec.md 4).
  */
-export class Modbus_Emulator {
+export class Modbus_Emulator extends EventEmitter {
 	/** @type {Unit_Map} */
 	unit_map = new Unit_Map();
 	/** @type {Object} The handler shared by all the servers. */
@@ -59,10 +77,10 @@ export class Modbus_Emulator {
 	blocks = new Map();
 	/** @type {Object<string, Object>} The compiled layouts by name. */
 	layouts;
-	/** @type {import('es-modbus').Modbus_Server[]} */
+	/** @type {import('es-modbus').Modbus_Server[]} Named by their labels, e.g. `servers[1] (modbus://0.0.0.0:503)`. */
 	servers = [];
-	/** @type {string[]} The labels of the servers, e.g. `servers[1] (modbus://0.0.0.0:503)`. */
-	#labels = [];
+	/** @type {string[]} The diagnostics found at construction, before a listener can be attached. */
+	warnings = [];
 
 	/**
 	 * @param {string|string[]} source - The path of an emulator description file (YAML), or a list of paths: the
@@ -70,12 +88,10 @@ export class Modbus_Emulator {
 	 *     Not public: an object of the same structure is also accepted in place of a path, for the controller that
 	 *     assembles it; a relative `layouts_file` then is relative to the current directory. `layouts_file` names
 	 *     a layout file, instead of giving the layouts in the description.
-	 * @param {Object} [options]
-	 * @param {{info: Function, warn: Function, error: Function}} [options.logger] - Silent by default.
 	 * @throws {Error} With `errors`, every violation found, when the file is not valid.
 	 */
-	constructor(source, { logger } = {}) {
-		this.logger = normalize_logger(logger);
+	constructor(source) {
+		super();
 		const sources = Array.isArray(source) ? source : [source];
 		const labels = sources.map((item) => (typeof item === "string" ? item : "emulator description"));
 		const errors = [];
@@ -141,14 +157,15 @@ export class Modbus_Emulator {
 		this.#check_server_units(checked_servers, errors);
 		if (errors.length > 0) fail();
 
-		this.handler = create_handler(this.unit_map, { logger: this.logger });
-		// until events replace the logger (issue#mnwdf2fy)
-		this.handler.on("listener_error", ({ block, error }) => {
-			this.logger.error(`a listener of block ${block.name} failed: ${error?.message ?? error}`);
-		});
+		this.handler = create_handler(this.unit_map);
+		for (const name of HANDLER_EVENTS) this.handler.on(name, (payload) => this.emit(name, payload));
 		for (const { where, options } of checked_servers) {
-			this.servers.push(this.#create_server(options));
-			this.#labels.push(`${where} (${address_of(options)})`);
+			const server = this.#create_server(options, `${where} (${address_of(options)})`);
+			// listening to error also keeps an error of the server from throwing
+			for (const [name, field] of Object.entries(SERVER_EVENTS)) {
+				server.on(name, (arg) => this.emit(`server_${name}`, field ? { server, [field]: arg } : { server }));
+			}
+			this.servers.push(server);
 		}
 	}
 
@@ -264,13 +281,13 @@ export class Modbus_Emulator {
 		}
 	}
 
-	#create_server(options) {
+	#create_server(options, name) {
 		const { protocol, host, port, baud_rate, parity, data_bits, stop_bits, unit_ids } = options;
-		const { logger, handler } = this;
+		const { handler } = this;
 		if (protocol === "rtu") {
-			return create_rtu_server(port, this.unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, logger });
+			return create_rtu_server(port, this.unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, name });
 		}
-		return create_tcp_server(host, port, this.unit_map, { rtu: protocol === "rtu_over_tcp", unit_ids, handler, logger });
+		return create_tcp_server(host, port, this.unit_map, { rtu: protocol === "rtu_over_tcp", unit_ids, handler, name });
 	}
 
 	/**
@@ -296,7 +313,7 @@ export class Modbus_Emulator {
 		for (const [index, result] of results.entries()) {
 			if (result.status === "fulfilled") continue;
 			const { reason } = result;
-			failures.push(new Error(`${this.#labels[index]}: ${reason?.message ?? reason}`, { cause: reason }));
+			failures.push(new Error(`${this.servers[index].name}: ${reason?.message ?? reason}`, { cause: reason }));
 		}
 		if (failures.length === 0) return;
 		if (!partial) await this.stop();
