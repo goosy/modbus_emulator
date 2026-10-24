@@ -13,6 +13,12 @@ export type {
 export interface Modbus_Server extends EventEmitter {
 	/** Identifies the server in events and errors; the label of its service in an emulator. */
 	readonly name: string;
+	/** `tcp`, `rtu_over_tcp` or `rtu`. */
+	readonly protocol: "tcp" | "rtu_over_tcp" | "rtu";
+	/** The TCP port, or the serial port path. */
+	readonly port: number | string;
+	/** Whether the server answers a unit id. */
+	is_valid_unit_id(unit_id: number): boolean;
 	start(): Promise<unknown>;
 	stop(): Promise<unknown>;
 	/** Sets the unit ids the server answers: one, a list, or every id with `"all"` / `"*"` / null. */
@@ -128,14 +134,14 @@ export type Server_Event_Name =
  */
 export class Modbus_Emulator extends EventEmitter {
 	constructor(source: string | string[]);
-	unit_map: Unit_Map;
-	handler: Modbus_Handler;
-	blocks: Map<string, Ldata>;
-	layouts: Record<string, Layout>;
+	readonly unit_map: Unit_Map;
+	readonly handler: Modbus_Handler;
+	readonly blocks: ReadonlyMap<string, Ldata>;
+	readonly layouts: Readonly<Record<string, Layout>>;
 	/** Item `i` is the service entry `i` of the description, named by its label. */
-	servers: Modbus_Server[];
+	readonly servers: readonly Modbus_Server[];
 	/** The diagnostics found at construction. */
-	warnings: string[];
+	readonly warnings: readonly string[];
 	block(name: string): Ldata | undefined;
 	/**
 	 * Starts all the servers. When any fails, rejects with an `AggregateError` of every failure, after stopping all
