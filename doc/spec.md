@@ -32,7 +32,8 @@ Out of scope: the Modbus master (client), the business logic of a device (implem
 - A read request emits one `access` of kind `read` per block it reaches, naming only the tags read; for coils, only the Bools of the bits read.
 - An error thrown by a listener of a block (`change`, `write`, `access`) when a request is committed neither undoes its writes nor affects the other blocks: the master gets a normal response, and the handler emits `listener_error` with `{ block, error }`.
 - An address in a unit with no block reads as 0 / false, and a write to it is ignored. No exception is returned, so a read across a gap still succeeds. The handler emits `unmapped` once per (type, unit, address), for at most 1024 addresses; after that, it emits `unmapped_limit` once and no further `unmapped` (see Events).
-- An unregistered unit id is answered with exception code 0x0B by es-modbus. An illegal function code, an illegal quantity, or an address out of range is answered with 0x01 / 0x03 / 0x02.
+- A unit id that a service does not answer is answered with exception code 0x0B by es-modbus over `tcp`, and not answered at all on a serial bus (`rtu`, `rtu_over_tcp`). An illegal function code, an illegal quantity, or an address out of range is answered with 0x01 / 0x03 / 0x02.
+- On a serial bus (`rtu`, `rtu_over_tcp`), unit 0 is the broadcast address: es-modbus executes the writes to it and never answers, so the blocks of unit 0 cannot be read through such a service. Units 248 to 255 are reserved on a serial bus. A service of these protocols that answers unit 0 or a unit from 248 to 255 gives a warning in `warnings` of the emulator; it is not an error.
 
 ## 4. Interface
 

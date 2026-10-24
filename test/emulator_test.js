@@ -127,6 +127,30 @@ servers:
 		]);
 	});
 
+	test("a service on a serial bus that answers unit 0 or 248..255 gives warnings", () => {
+		const emulator = make(`
+blocks:
+  - { name: a, unit_id: 0, layout: PUMP }
+  - { name: b, unit_id: 1, layout: PUMP }
+  - { name: c, unit_id: 248, layout: PUMP }
+  - { name: d, unit_id: 255, layout: PUMP }
+servers:
+  - { protocol: tcp, port: 0 }
+  - { protocol: rtu_over_tcp, port: 0 }
+  - { protocol: rtu, port: COM_TEST }
+  - { protocol: rtu, port: COM_OTHER, unit_ids: [1, 255] }
+  - { protocol: rtu_over_tcp, port: 0, unit_ids: [1] }
+`);
+
+		assert.deepEqual(emulator.warnings, [
+			"servers[1] (rtu://0.0.0.0:0): unit 0 is the broadcast address of a serial bus, written but never answered",
+			"servers[1] (rtu://0.0.0.0:0): reserved units of a serial bus: 248, 255",
+			"servers[2] (serial://COM_TEST): unit 0 is the broadcast address of a serial bus, written but never answered",
+			"servers[2] (serial://COM_TEST): reserved units of a serial bus: 248, 255",
+			"servers[3] (serial://COM_OTHER): reserved units of a serial bus: 255",
+		]);
+	});
+
 	test("a server answers the units of its unit_ids, the others all units", () => {
 		const emulator = make(`
 blocks:

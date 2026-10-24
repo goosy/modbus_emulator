@@ -30,7 +30,8 @@ modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - 一次读请求对读到的每个块发出一次 `read` 类的 `access`，只报告被读的 tag；线圈只报告被读的位所对应的 Bool；
 - 提交一次请求时，块的监听器（`change`、`write`、`access`）抛出的异常既不撤销写入，也不影响其他块：主站照常收到应答，handler 发出 `listener_error`，载荷 `{ block, error }`；
 - 单元内没有数据块的地址读为 0 / false，写入被忽略，不应答异常，因此跨越空档的整块读取仍能成功；handler 对每个（类型、单元、地址）只发出一次 `unmapped`，最多 1024 个地址，之后发出一次 `unmapped_limit`，不再发出 `unmapped`（见“事件”）；
-- 未登记的单元号由 es-modbus 应答异常码 0x0B；非法功能码、数量或地址越界应答 0x01 / 0x03 / 0x02。
+- 服务不应答的单元号，在 `tcp` 下由 es-modbus 应答异常码 0x0B，在串行总线（`rtu`、`rtu_over_tcp`）上不作应答；非法功能码、数量或地址越界应答 0x01 / 0x03 / 0x02；
+- 在串行总线（`rtu`、`rtu_over_tcp`）上，unit 0 是广播地址：es-modbus 执行对它的写入，但从不应答，所以经这类服务读不到 unit 0 的数据块；248..255 在串行总线上是保留地址。这类协议的服务应答 unit 0 或 248..255 中的单元时，在模拟器的 `warnings` 中给出警告，不作为错误。
 
 ## 4. 接口
 

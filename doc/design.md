@@ -56,7 +56,7 @@ Dependencies:
 - The label of a service, its place in the description (`servers[i]`, prefixed by its file when there are several) and its address (`modbus://host:port`, `rtu://host:port`, `serial://path`), is given to its server as the `name` option of es-modbus. The server carries it from then on: the errors of `start()` and the listeners of the forwarded events read `server.name`, and the emulator keeps no list of labels of its own.
 - `stop()` stops all services in parallel with `Promise.all`.
 - Events: `Modbus_Emulator` extends `EventEmitter`. After creating a server, it subscribes to the es-modbus events of the server and re-emits each `<name>` as `server_<name>` with `{ server }` plus the `socket`, `error` or `frame` argument; it subscribes to the events of the handler and re-emits them unchanged. Its listener of `error` keeps an error of a server from throwing, and it emits no `error` of its own, so an emulator without listeners never throws from an event.
-- The diagnostics found at construction happen before a caller can attach a listener, so they are pushed to `warnings` (an array of strings) instead of being emitted.
+- The diagnostics found at construction happen before a caller can attach a listener, so they are pushed to `warnings` (an array of strings) instead of being emitted. After the servers are created, each server whose protocol is not `tcp` (es-modbus treats unit 0 as the broadcast address when the protocol is not `tcp`) is checked for unit 0 and units 248 to 255 among the units it answers (its `unit_ids`, or every unit of the map), with one warning per server and kind, naming the server.
 
 ## 5. Build and Test
 

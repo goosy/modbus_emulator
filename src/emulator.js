@@ -35,6 +35,9 @@ const SERVER_EVENTS = {
 	send: "frame",
 };
 
+// the units reserved on a serial bus, besides the broadcast address 0
+const RESERVED_UNITS = [248, 249, 250, 251, 252, 253, 254, 255];
+
 // the events of the handler, forwarded unchanged
 const HANDLER_EVENTS = ["unmapped", "unmapped_limit", "listener_error"];
 const BLOCK_KEYS = ["name", "unit_id", "layout", "start", "offset"];
@@ -166,6 +169,19 @@ export class Modbus_Emulator extends EventEmitter {
 				server.on(name, (arg) => this.emit(`server_${name}`, field ? { server, [field]: arg } : { server }));
 			}
 			this.servers.push(server);
+			this.#check_serial_units(server, options.unit_ids ?? this.unit_map.unit_ids);
+		}
+	}
+
+	/** Warns of the broadcast and reserved units a server on a serial bus answers (es-modbus: protocol not tcp). */
+	#check_serial_units(server, unit_ids) {
+		if (server.protocol === "tcp") return;
+		if (unit_ids.includes(0)) {
+			this.warnings.push(`${server.name}: unit 0 is the broadcast address of a serial bus, written but never answered`);
+		}
+		const reserved = unit_ids.filter((id) => RESERVED_UNITS.includes(id));
+		if (reserved.length > 0) {
+			this.warnings.push(`${server.name}: reserved units of a serial bus: ${reserved.join(", ")}`);
 		}
 	}
 
