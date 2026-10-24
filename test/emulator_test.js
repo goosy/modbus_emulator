@@ -7,18 +7,10 @@ import { join } from "node:path";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
 import { Modbus_Emulator, Ldata, Ltag, register_layout, get_layout, io_index_table, render_types } from "../src/index.js";
+import { HOST, hold_port, listening_port } from "./helpers.js";
 
-const HOST = "127.0.0.1";
 const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-"));
 let file_seq = 0;
-
-async function free_port() {
-	const probe = net.createServer();
-	await new Promise((resolve) => probe.listen(0, HOST, resolve));
-	const { port } = probe.address();
-	await new Promise((resolve) => probe.close(resolve));
-	return port;
-}
 
 const LAYOUTS = `
 layouts:
@@ -263,15 +255,15 @@ describe("Modbus_Emulator object description", () => {
 
 describe("Modbus_Emulator service", () => {
 	async function start(t, options) {
-		const port = await free_port();
 		const emulator = make(`
 blocks:
   - { name: pump, unit_id: 1, layout: PUMP }
 servers:
-  - { protocol: tcp, host: ${HOST}, port: ${port} }
+  - { protocol: tcp, host: ${HOST}, port: 0 }
 `, options);
 		await emulator.start();
 		t.after(() => emulator.stop());
+		const port = listening_port(emulator.servers[0]);
 		const master = new Modbus_Client(HOST, { port, reconnect_time: 0 });
 		master.on("error", () => { });
 		t.after(() => master.disconnect());
@@ -290,21 +282,25 @@ servers:
 		});
 	}
 
-	/** An emulator of two servers, whose second one cannot listen on its port, already taken. */
+	/**
+	 * An emulator of two servers, whose second one cannot listen on its port, already taken.
+	 * `free()` is the port the first server listened on: it is recorded at its start, since
+	 * a server stopped by the failed start no longer has an address.
+	 */
 	async function emulator_with_taken_port(t) {
-		const [free, taken] = [await free_port(), await free_port()];
-		const holder = net.createServer();
-		await new Promise((resolve) => holder.listen(taken, HOST, resolve));
+		const { holder, port: taken } = await hold_port();
 		t.after(() => new Promise((resolve) => holder.close(resolve)));
 		const emulator = make(`
 blocks:
   - { name: pump, unit_id: 1, layout: PUMP }
 servers:
-  - { protocol: tcp, host: ${HOST}, port: ${free} }
+  - { protocol: tcp, host: ${HOST}, port: 0 }
   - { protocol: tcp, host: ${HOST}, port: ${taken} }
 `);
 		t.after(() => emulator.stop());
-		return { emulator, free, taken };
+		let first_port;
+		emulator.servers[0].once("start", () => { first_port = listening_port(emulator.servers[0]); });
+		return { emulator, free: () => first_port, taken };
 	}
 
 	/** Checks the AggregateError of a start that failed on the taken port. */
@@ -320,14 +316,14 @@ servers:
 		const { emulator, free, taken } = await emulator_with_taken_port(t);
 
 		await assert.rejects(emulator.start(), (e) => check_start_error(e, taken));
-		assert.equal(await is_listening(free), false);
+		assert.equal(await is_listening(free()), false);
 	});
 
 	test("a failed partial start leaves the started servers running", async (t) => {
 		const { emulator, free, taken } = await emulator_with_taken_port(t);
 
 		await assert.rejects(emulator.start({ partial: true }), (e) => check_start_error(e, taken));
-		assert.equal(await is_listening(free), true);
+		assert.equal(await is_listening(free()), true);
 	});
 
 	test("a master reads what the program sets through the tags", async (t) => {
@@ -364,17 +360,17 @@ servers:
 	});
 
 	test("two servers share the blocks and each answers only its units", async (t) => {
-		const [port_a, port_b] = [await free_port(), await free_port()];
 		const emulator = make(`
 blocks:
   - { name: a, unit_id: 1, layout: PUMP }
   - { name: b, unit_id: 2, layout: PUMP }
 servers:
-  - { protocol: tcp, host: ${HOST}, port: ${port_a}, unit_ids: [1] }
-  - { protocol: rtu_over_tcp, host: ${HOST}, port: ${port_b}, unit_ids: [1, 2] }
+  - { protocol: tcp, host: ${HOST}, port: 0, unit_ids: [1] }
+  - { protocol: rtu_over_tcp, host: ${HOST}, port: 0, unit_ids: [1, 2] }
 `);
 		await emulator.start();
 		t.after(() => emulator.stop());
+		const [port_a, port_b] = emulator.servers.map(listening_port);
 		const connect = (port, rtu) => {
 			const master = new Modbus_Client(HOST, { port, rtu, reconnect_time: 0 });
 			master.on("error", () => { });
@@ -393,18 +389,17 @@ servers:
 	});
 
 	test("all the servers share one handler and the unmapped warning is reported once", async (t) => {
-		const [port_a, port_b] = [await free_port(), await free_port()];
 		const warnings = [];
 		const emulator = make(`
 blocks:
   - { name: a, unit_id: 1, layout: PUMP }
 servers:
-  - { protocol: tcp, host: ${HOST}, port: ${port_a} }
-  - { protocol: tcp, host: ${HOST}, port: ${port_b} }
+  - { protocol: tcp, host: ${HOST}, port: 0 }
+  - { protocol: tcp, host: ${HOST}, port: 0 }
 `, { logger: { warn: (message) => warnings.push(message) } });
 		await emulator.start();
 		t.after(() => emulator.stop());
-		const masters = [port_a, port_b].map((port) => {
+		const masters = emulator.servers.map(listening_port).map((port) => {
 			const master = new Modbus_Client(HOST, { port, reconnect_time: 0 });
 			master.on("error", () => { });
 			t.after(() => master.disconnect());
@@ -422,7 +417,7 @@ servers:
 		await emulator.stop();
 		await emulator.start();
 
-		const retry = new Modbus_Client(HOST, { port: emulator.servers[0].port, reconnect_time: 0 });
+		const retry = new Modbus_Client(HOST, { port: listening_port(emulator.servers[0]), reconnect_time: 0 });
 		retry.on("error", () => { });
 		t.after(() => retry.disconnect());
 		assert.deepEqual(await retry.read([3, 0, 1], 1), Buffer.from([0, pump.id]));

@@ -55,5 +55,5 @@
 ## 5. 构建与测试
 
 - `pnpm build`：rolldown 把 `src/index.js` 打包为 `dist/modbus_emulator.js`；
-- `pnpm test`：先构建，再 `node --test`；测试用 es-modbus 的 `Modbus_Client` 作主站，RTU 串口只测构造；
+- `pnpm test`：先构建，再 `node --test`；测试用 es-modbus 的 `Modbus_Client` 作主站；被测的 TCP 服务监听端口 0，测试读取系统选定的端口，避免探测与监听之间端口被其他进程占用；RTU 串口只测构造；
 - `pnpm lint`：ESLint。

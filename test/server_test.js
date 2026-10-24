@@ -1,22 +1,12 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import net from "node:net";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
 import { Unit_Map, create_tcp_server, create_rtu_server, create_handler } from "../src/index.js";
+import { HOST, listening_port } from "./helpers.js";
 
-const HOST = "127.0.0.1";
 const UNIT = 5;
 const OTHER_UNIT = 9; // never attached: the server answers exception 0x0B
-
-/** Returns a TCP port that is free right now. */
-async function free_port() {
-	const probe = net.createServer();
-	await new Promise((resolve) => probe.listen(0, HOST, resolve));
-	const { port } = probe.address();
-	await new Promise((resolve) => probe.close(resolve));
-	return port;
-}
 
 /**
  * A minimal Ldata stand-in: the server reads through read_bytes and writes
@@ -53,11 +43,10 @@ async function start_server(t, options) {
 	const unit_map = new Unit_Map();
 	unit_map.attach_unit(UNIT, data, 0);
 	unit_map.attach_unit(UNIT, command, 400);
-	const port = await free_port();
-	const server = create_tcp_server(HOST, port, unit_map, options);
+	const server = create_tcp_server(HOST, 0, unit_map, options);
 	await server.start();
 	t.after(() => server.stop());
-	return { server, port, data, command };
+	return { server, port: listening_port(server), data, command };
 }
 
 describe("create_tcp_server", () => {
@@ -168,11 +157,10 @@ describe("create_tcp_server", () => {
 		unit_map.attach_unit(UNIT, fake_block(8), 0);
 		unit_map.attach_unit(OTHER_UNIT, fake_block(8), 0);
 		const connect = async (unit_ids) => {
-			const port = await free_port();
-			const server = create_tcp_server(HOST, port, unit_map, { unit_ids });
+			const server = create_tcp_server(HOST, 0, unit_map, { unit_ids });
 			await server.start();
 			t.after(() => server.stop());
-			const master = new Modbus_Client(HOST, { port, reconnect_time: 0 });
+			const master = new Modbus_Client(HOST, { port: listening_port(server), reconnect_time: 0 });
 			master.on("error", () => { });
 			t.after(() => master.disconnect());
 			return master;

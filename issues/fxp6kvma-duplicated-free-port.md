@@ -1,9 +1,9 @@
 ---
 id: fxp6kvma
 opened: 2026-10-17T23:58:26.000Z
-closed:
+closed: 2026-10-24T09:26:11.000Z
 title: 测试辅助函数 free_port 重复且有竞态
-status: open        # open | accepted | fixed | rejected | wontfix
+status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
@@ -21,3 +21,5 @@ decision_title: 裁定
 合并为一个共享的测试辅助模块。让被测服务监听端口 0 并读取实际端口，以消除竞态。
 
 ## 裁定
+
+问题成立，按解决提案修复：辅助函数合并到 `test/helpers.js`；被测服务监听端口 0，测试从 es-modbus 内部的 `server.server.address()` 读取实际端口，消除竞态。
