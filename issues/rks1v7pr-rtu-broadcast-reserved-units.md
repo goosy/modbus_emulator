@@ -22,6 +22,8 @@ RTU 下 unit 0 是广播地址：es-modbus 对它只执行写、不应答。挂�
 
 警告在构造期产生，调用方还来不及挂监听器，因此不用事件，收入模拟器的 `warnings` 属性（见 issue#mnwdf2fy）。
 
+测试：RTU 服务的单元含 0 或 248..255 时产生警告，TCP 服务不产生。
+
 放弃的方案：通过 logger 报告，logger 将被去掉（issue#mnwdf2fy）。
 
 ## 裁定

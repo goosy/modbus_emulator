@@ -2,7 +2,7 @@
 id: cxh7ygz3
 opened: 2026-10-17T23:58:20.000Z
 closed:
-title: 每进程只能有一个模拟器
+title: 布局注册每进程一次的约束未写入 spec
 status: open        # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
@@ -14,10 +14,13 @@ decision_title: 裁定
 
 ## 问题描述
 
-`register_layout` 每进程只能成功一次，带布局的 `Modbus_Emulator` 因此每进程只能有一个。这是 layout-data 带来的约束，spec 未明确写出。
+`register_layout` 每进程只能成功一次，这是 layout-data 的设计。由此，带有布局（`layouts` 或 `layouts_file`）的描述，每个进程只能构造一次模拟器，不论成功还是失败。spec 没有写出这一约束，也没有说明需要多个实例、或在同一进程内重建实例时该怎么做。
 
 ## 解决提案
 
-在 spec 中写明此约束；考虑请 layout-data 提供只校验不注册的 dry-run 或增量注册。
+在 spec（含中文版）中写明：
+
+- 带布局的描述，每个进程只能构造一次模拟器；描述有误时，改正后重启进程。
+- 需要在同一进程中运行多个模拟器，或不动布局只重建实例（如换端口、IP）时，让布局独立于实例：先用本包转发的 `register_layout` 单独注册全部布局，描述中不带布局、只引用布局名；这样的描述在同一进程中可以多次构造。
 
 ## 裁定
