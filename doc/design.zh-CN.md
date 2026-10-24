@@ -1,4 +1,4 @@
-# modbus_emulator 设计
+# modbus-emulator 设计
 
 > 需求见 [spec.zh-CN.md](spec.zh-CN.md)。本文说明实现。
 

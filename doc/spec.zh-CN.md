@@ -1,8 +1,8 @@
-# modbus_emulator 规范
+# modbus-emulator 规范
 
 ## 1. 目标与范围
 
-modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站服务，并通过 [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md) 的 Ldata / Ltag 对外提供操作 API，使调用方可以施加额外的运算，模拟一个数据块的运行。
+modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站服务，并通过 [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md) 的 Ldata / Ltag 对外提供操作 API，使调用方可以施加额外的运算，模拟一个数据块的运行。
 
 - 从站服务的传输：Modbus TCP、RTU over TCP、RTU（串口）；
 - 同一个模拟器可以同时提供多个服务，共用同一组数据块；
@@ -102,5 +102,5 @@ servers:
 
 ## 6. 发布形态
 
-- 以 ES 模块库发布，入口 `modbus_emulator`；依赖 `layout-data`、`es-modbus` 和 `yaml`，都保持外部引用：本包是给其他包依赖的，使用它的应用把它们统一打包一次；
+- 以 ES 模块库发布，入口 `modbus-emulator`；依赖 `layout-data`、`es-modbus` 和 `yaml`，都保持外部引用：本包是给其他包依赖的，使用它的应用把它们统一打包一次；
 - Node.js >= 20.11。

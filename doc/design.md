@@ -1,4 +1,4 @@
-# modbus_emulator Design
+# modbus-emulator Design
 
 > Chinese edition: [design.zh-CN.md](design.zh-CN.md). Keep the two in sync.
 > For the requirements, see [spec.md](spec.md). This document describes the implementation.

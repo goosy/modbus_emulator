@@ -1,4 +1,4 @@
-# modbus_emulator
+# modbus-emulator
 
 A Modbus device emulator library. It provides Modbus slave services (TCP, RTU over TCP, RTU) over structured data blocks, and exposes the data through the Ldata / Ltag API of [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md), so your code can compute on the data to emulate a running device.
 
@@ -12,7 +12,7 @@ A Modbus device emulator library. It provides Modbus slave services (TCP, RTU ov
 ## Install
 
 ```sh
-pnpm add modbus_emulator
+pnpm add modbus-emulator
 ```
 
 Requires Node.js >= 20.11.
@@ -36,7 +36,7 @@ servers:
 ```
 
 ```js
-import { Modbus_Emulator } from "modbus_emulator";
+import { Modbus_Emulator } from "modbus-emulator";
 
 const emulator = new Modbus_Emulator("emulator.yaml");
 await emulator.start();
@@ -52,7 +52,7 @@ An invalid description file throws an `Error`; its `errors` property lists all v
 ### Without a description file
 
 ```js
-import { Unit_Map, Ldata, register_layout, create_tcp_server } from "modbus_emulator";
+import { Unit_Map, Ldata, register_layout, create_tcp_server } from "modbus-emulator";
 
 // once per process
 register_layout({

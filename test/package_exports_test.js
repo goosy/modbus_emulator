@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
-import * as pkg from "modbus_emulator";
+import * as pkg from "modbus-emulator";
 import * as src from "../src/index.js";
 
 // The other tests import src: this test imports the package by its own name, so a wrong

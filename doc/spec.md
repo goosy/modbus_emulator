@@ -1,10 +1,10 @@
-# modbus_emulator Specification
+# modbus-emulator Specification
 
 > Chinese edition: [spec.zh-CN.md](spec.zh-CN.md). Keep the two in sync.
 
 ## 1. Goals and Scope
 
-modbus_emulator is a Modbus device emulator library. It provides Modbus slave services to the outside, and exposes the data through the Ldata / Ltag API of [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md), so that callers can apply extra computation to emulate the running of a device.
+modbus-emulator is a Modbus device emulator library. It provides Modbus slave services to the outside, and exposes the data through the Ldata / Ltag API of [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md), so that callers can apply extra computation to emulate the running of a device.
 
 - Slave transports: Modbus TCP, RTU over TCP, RTU (serial port).
 - One emulator can provide several services at the same time, sharing the same set of data blocks.
@@ -104,5 +104,5 @@ servers:
 
 ## 6. Distribution
 
-- Published as an ES module library with the entry `modbus_emulator`. It depends on `layout-data`, `es-modbus` and `yaml`, which stay external: the package is meant to be a dependency of other packages, and the application that uses it bundles them once.
+- Published as an ES module library with the entry `modbus-emulator`. It depends on `layout-data`, `es-modbus` and `yaml`, which stay external: the package is meant to be a dependency of other packages, and the application that uses it bundles them once.
 - Node.js >= 20.11.

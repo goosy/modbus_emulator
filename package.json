@@ -1,5 +1,5 @@
 {
-	"name": "modbus_emulator",
+	"name": "modbus-emulator",
 	"version": "0.1.0",
 	"description": "Modbus device emulator: slave services (TCP, RTU over TCP, RTU) over structured data blocks",
 	"type": "module",
