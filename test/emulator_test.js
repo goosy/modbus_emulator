@@ -70,7 +70,7 @@ servers:
 		assert.equal(emulator.block("pump").id, 7);
 		assert.equal(emulator.block("setting").limit, 100);
 		assert.deepEqual(emulator.unit_map.unit_ids, [1, 2]);
-		assert.equal(emulator.unit_map[1].length, 2);
+		assert.equal(emulator.unit_map.segments(1).length, 2);
 		assert.deepEqual(emulator.servers.map((server) => server.protocol), ["tcp", "rtu_over_tcp", "rtu"]);
 	});
 

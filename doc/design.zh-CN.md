@@ -27,7 +27,8 @@
 
 ## 2. Unit_Map 与 handler
 
-- `Unit_Map.attach_unit(unit_id, block, start, offset)` 把 Ldata 挂到某个单元的字节区间 `[start, start + size)`，一个单元可以挂多个 Ldata；`unit_ids` 列出已挂的单元号。
+- `Unit_Map` 内部用私有的 `Map` 保存单元号到该单元各段的映射，单元不再是实例自身的属性。`attach_unit(unit_id, block, start, offset)` 检查 `start` 与 `offset` 为偶数非负整数，使自行装配单元表的调用方与模拟器受到同样的保护，并按 `start` 把段 `{ block, start, offset, end: start + size - offset }` 插入到位。一个单元可以挂多个 Ldata。
+- `resolve(unit_id, byte)` 用二分查找找出 `start` 不大于 `byte` 的最后一段，`byte` 小于该段的 `end` 时即已映射。handler 对每个点都经它查找。
 - `create_handler(unit_map)` 返回 es-modbus 要求的 handler，方法名为 snake_case：`get_holding_register`、`get_input_register`、`set_holding_register`、`get_coil`（同时用于 FC 1 和 FC 2）、`set_coil`，以及批量方法 `get_holding_registers` / `get_input_registers` / `get_coils` / `set_holding_registers` / `set_coils`：es-modbus 对一次 FC 3 / FC 4 / FC 1 与 FC 2 / FC 16 / FC 15 请求只调用一次，而不是每个点一次。有批量读时 es-modbus 不再调用逐点读，逐点读留给 handler 的调用方。handler 是 `EventEmitter`（`Object.assign(new EventEmitter(), methods)`）。
 - 寄存器 `addr` 对应字节 `addr * 2`，按大端用 Ldata 的 `read_bytes` 读取；线圈 `addr` 对应字节 `addr >> 3` 的第 `addr % 8` 位。
 - 写入经 Ldata 的 `write_bytes` / `write_bit`，由 Ldata 在每次写入后检测变化；Ldata 的字节不能以其他方式访问。
@@ -40,7 +41,7 @@
 
 ## 3. 服务
 
-- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, handler })`：用 handler 创建 `Modbus_Server`，`unit_id` 取选项 `unit_ids`，缺省取 `unit_map.unit_ids`（es-modbus 在构造时把它复制为集合，之后新增的单元不会生效，所以单元要在创建服务前挂好）；`rtu` 传给 es-modbus 的同名选项；`handler` 选项缺省时用 `create_handler` 建立。
+- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, handler })`：用 handler 创建 `Modbus_Server`，`unit_id` 取选项 `unit_ids`，缺省取 `unit_map.unit_ids`（es-modbus 在构造时把它复制为集合，所以服务的列表从创建起就与单元表相互独立：缺省值是那时单元表中的单元，`attach_unit` 从不改变它，只有服务的 `set_unit_ids` 能改变它。单元表与服务应答的单元有意分开：前者是数据，后者是服务的配置）；`rtu` 传给 es-modbus 的同名选项；`handler` 选项缺省时用 `create_handler` 建立。
 - `Modbus_Emulator` 在建好单元表后只建立一个 handler（`emulator.handler`），传给它的全部服务：handler 只按单元表查找、没有其他状态，共用后“未映射地址”的警告在全部服务中合计只报告一次，而不是每个服务各报告一次。handler 依赖单元表并保存已报告地址的集合，所以不能放在模块顶层，否则同一进程内的多个模拟器会互相串用。
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler })`：`unit_ids` 同上；`port` 取串口路径，es-modbus 据此选 RTU 传输；构造时检查参数，`start()` 才打开串口，所以构造不需要硬件。
 - 工厂不给服务添加监听器：服务的事件就是 es-modbus 原有的，由调用方监听，包括 `error`。

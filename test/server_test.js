@@ -168,6 +168,24 @@ describe("create_tcp_server", () => {
 		assert.equal((await both.read([3, 0, 1], OTHER_UNIT)).length, 2);
 	});
 
+	test("the default unit_ids are the units of the map when the server is created", async (t) => {
+		const unit_map = new Unit_Map();
+		unit_map.attach_unit(UNIT, fake_block(8), 0);
+		const server = create_tcp_server(HOST, 0, unit_map);
+		await server.start();
+		t.after(() => server.stop());
+		const master = new Modbus_Client(HOST, { port: listening_port(server), reconnect_time: 0 });
+		master.on("error", () => { });
+		t.after(() => master.disconnect());
+
+		unit_map.attach_unit(OTHER_UNIT, fake_block(8), 0);
+		await assert.rejects(master.read([3, 0, 1], OTHER_UNIT), { message: "response error: 11" });
+
+		// answering a later unit is the configuration of the server
+		server.set_unit_ids(unit_map.unit_ids);
+		assert.equal((await master.read([3, 0, 1], OTHER_UNIT)).length, 2);
+	});
+
 	test("the plain server uses the tcp protocol", async (t) => {
 		const { server } = await setup(t);
 

@@ -14,28 +14,14 @@ const MAX_UNMAPPED_REPORTS = 1024;
 // the bytes of the register being written; write_bytes copies them at once
 const REGISTER_BYTES = new Uint8Array(2);
 
-const get_register_info = (addr, units) => {
-	const byte_offset = addr * 2;
-	for (const { block, start, offset, end } of units ?? []) {
-		if (block && byte_offset >= start && byte_offset < end) {
-			// return.offset: the byte offset in the block
-			return { block, offset: byte_offset + offset - start };
-		}
-	}
-	return { block: null, offset: -1 };
-};
+const NOT_MAPPED = Object.freeze({ block: null, offset: -1 });
 
-const get_coil_info = (addr, units) => {
-	const byte_offset = addr >> 3;
-	const bit_offset = addr % 8;
-	const bit_mask = 1 << bit_offset;
-	for (const { block, start, offset, end } of units ?? []) {
-		if (block && byte_offset >= start && byte_offset < end) {
-			// return.offset: the byte offset in the block
-			return { block, offset: byte_offset + offset - start, bit_mask };
-		}
-	}
-	return { block: null, offset: -1 };
+// return.offset: the byte offset in the block
+const get_register_info = (addr, unit_map, unit_id) => unit_map.resolve(unit_id, addr * 2) ?? NOT_MAPPED;
+
+const get_coil_info = (addr, unit_map, unit_id) => {
+	const place = unit_map.resolve(unit_id, addr >> 3);
+	return place ? { ...place, bit_mask: 1 << (addr % 8) } : NOT_MAPPED;
 };
 
 /**
@@ -43,11 +29,11 @@ const get_coil_info = (addr, units) => {
  * consecutive offsets. An unmapped register is passed to `report` and belongs to no run.
  * run.index: the index of its first register in the request.
  */
-const register_runs = (addr, quantity, units, report) => {
+const register_runs = (addr, quantity, unit_map, unit_id, report) => {
 	const runs = [];
 	let run = null;
 	for (let i = 0; i < quantity; i++) {
-		const { block, offset } = get_register_info(addr + i, units);
+		const { block, offset } = get_register_info(addr + i, unit_map, unit_id);
 		if (block == null) {
 			report(addr + i);
 			run = null;
@@ -65,10 +51,10 @@ const register_runs = (addr, quantity, units, report) => {
  * Locates the coils of one request: the block, the byte offset in it and the bit mask of each
  * mapped coil. An unmapped coil is passed to `report` and left out. point.index: its index in the request.
  */
-const coil_points = (addr, quantity, units, report) => {
+const coil_points = (addr, quantity, unit_map, unit_id, report) => {
 	const points = [];
 	for (let i = 0; i < quantity; i++) {
-		const { block, offset, bit_mask } = get_coil_info(addr + i, units);
+		const { block, offset, bit_mask } = get_coil_info(addr + i, unit_map, unit_id);
 		if (block == null) report(addr + i);
 		else points.push({ block, offset, bit_mask, index: i });
 	}
@@ -132,7 +118,7 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 	};
 
 	const read_register = (kind) => (addr, unit_id) => {
-		const { block, offset } = get_register_info(addr, unit_map[unit_id]);
+		const { block, offset } = get_register_info(addr, unit_map, unit_id);
 		if (block == null) {
 			report_unmapped(kind, addr, unit_id);
 			return 0;
@@ -146,7 +132,7 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 	const read_registers = (kind) => (addr, quantity, unit_id) => {
 		const values = new Array(quantity).fill(0);
 		const report = (unmapped) => report_unmapped(kind, unmapped, unit_id);
-		const runs = register_runs(addr, quantity, unit_map[unit_id], report);
+		const runs = register_runs(addr, quantity, unit_map, unit_id, report);
 		in_transactions(blocks_of(runs), () => {
 			for (const { block, offset, index, count } of runs) {
 				const bytes = block.read_bytes(offset, count * 2);
@@ -162,7 +148,7 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 		get_input_registers: read_registers("input register"),
 		get_holding_registers: read_registers("holding register"),
 		set_holding_register: (addr, value, unit_id) => {
-			const { block, offset } = get_register_info(addr, unit_map[unit_id]);
+			const { block, offset } = get_register_info(addr, unit_map, unit_id);
 			if (block == null) {
 				report_unmapped("holding register", addr, unit_id);
 				return;
@@ -175,7 +161,7 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 		// one FC 16 request: written atomically, one write_bytes per run
 		set_holding_registers: (addr, values, unit_id) => {
 			const report = (unmapped) => report_unmapped("holding register", unmapped, unit_id);
-			const runs = register_runs(addr, values.length, unit_map[unit_id], report);
+			const runs = register_runs(addr, values.length, unit_map, unit_id, report);
 			in_transactions(blocks_of(runs), () => {
 				for (const { block, offset, index, count } of runs) {
 					const bytes = Buffer.alloc(count * 2);
@@ -186,7 +172,7 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 		},
 
 		get_coil: (addr, unit_id) => {
-			const { block, offset, bit_mask } = get_coil_info(addr, unit_map[unit_id]);
+			const { block, offset, bit_mask } = get_coil_info(addr, unit_map, unit_id);
 			if (block == null) {
 				report_unmapped("coil", addr, unit_id);
 				return false;
@@ -198,7 +184,7 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 		get_coils: (addr, quantity, unit_id) => {
 			const values = new Array(quantity).fill(false);
 			const report = (unmapped) => report_unmapped("coil", unmapped, unit_id);
-			const points = coil_points(addr, quantity, unit_map[unit_id], report);
+			const points = coil_points(addr, quantity, unit_map, unit_id, report);
 			in_transactions(blocks_of(points), () => {
 				for (const { block, offset, bit_mask, index } of points) values[index] = block.read_bit(offset, bit_mask);
 			}, report_listener_error);
@@ -206,7 +192,7 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 		},
 
 		set_coil: (addr, value, unit_id) => {
-			const { block, offset, bit_mask } = get_coil_info(addr, unit_map[unit_id]);
+			const { block, offset, bit_mask } = get_coil_info(addr, unit_map, unit_id);
 			if (block == null) {
 				report_unmapped("coil", addr, unit_id);
 				return;
@@ -217,7 +203,7 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 		// one FC 15 request: written atomically, one write_bit per byte and value
 		set_coils: (addr, values, unit_id) => {
 			const report = (unmapped) => report_unmapped("coil", unmapped, unit_id);
-			const points = coil_points(addr, values.length, unit_map[unit_id], report);
+			const points = coil_points(addr, values.length, unit_map, unit_id, report);
 			// the coils of one byte: the mask of the bits set and of the bits cleared
 			const bytes = [];
 			for (const { block, offset, bit_mask, index } of points) {
@@ -240,28 +226,83 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 	return handler;
 }
 
+const NO_SEGMENTS = Object.freeze([]);
+
+/** Throws unless value is an even non-negative integer: the byte offsets of a unit map are register aligned. */
+const check_even = (value, name) => {
+	if (!Number.isInteger(value) || value < 0 || value % 2 !== 0) {
+		throw new RangeError(`${name} must be an even non-negative byte offset, got ${value}`);
+	}
+};
+
+/**
+ * The data blocks placed per unit id. A unit holds segments: the byte range [start, end) of the
+ * unit maps to the bytes of a block from its byte `offset`. The segments of a unit are kept
+ * sorted by `start`.
+ */
 export class Unit_Map {
-	unit_ids = [];
+	#units = new Map();
+
+	/** The unit ids that have a segment, in the order of their first attachment. */
+	get unit_ids() {
+		return [...this.#units.keys()];
+	}
 
 	/**
-	 * Attaches a unit to the unit map.
+	 * The segments of a unit, sorted by start; empty for a unit without block.
+	 * The array is the one of the unit map: read it only.
+	 *
+	 * @param {number} unit_id
+	 * @return {ReadonlyArray<{block: import('layout-data').Ldata, start: number, offset: number, end: number}>}
+	 */
+	segments(unit_id) {
+		return this.#units.get(unit_id) ?? NO_SEGMENTS;
+	}
+
+	/**
+	 * Finds the block that holds a byte of a unit.
+	 *
+	 * @param {number} unit_id
+	 * @param {number} byte - The byte offset in the unit.
+	 * @return {{block: import('layout-data').Ldata, offset: number} | null} The block and the byte offset in it; null for an unmapped byte.
+	 */
+	resolve(unit_id, byte) {
+		const segments = this.segments(unit_id);
+		// the last segment that starts at or before byte
+		let low = 0;
+		let high = segments.length;
+		while (low < high) {
+			const middle = (low + high) >> 1;
+			if (segments[middle].start <= byte) low = middle + 1;
+			else high = middle;
+		}
+		const segment = segments[low - 1];
+		if (segment === undefined || byte >= segment.end) return null;
+		return { block: segment.block, offset: byte - segment.start + segment.offset };
+	}
+
+	/**
+	 * Attaches a block to a unit: bytes [start, start + block.size - offset) of the unit map to
+	 * the bytes of the block from `offset`.
 	 *
 	 * @param {number} unit_id - The ID of the unit.
-	 * @param {import('layout-data').Ldata} block - The Ldata object that contains the data associated with the unit.
-	 * @param {number} [start=0] - The starting index of the unit's data.
-	 * @param {number} [offset=0] - The starting index of the Ldata object.
-	 * @return {void} This function does not return anything.
+	 * @param {import('layout-data').Ldata} block - The data block.
+	 * @param {number} [start=0] - The byte offset in the unit, even.
+	 * @param {number} [offset=0] - The byte offset in the block, even.
+	 * @return {void}
+	 * @throws {RangeError} When start or offset is not an even non-negative integer.
 	 */
 	attach_unit(unit_id, block, start = 0, offset = 0) {
-		if (this[unit_id] == null) {
-			this.unit_ids.push(unit_id);
-			this[unit_id] = [];
+		check_even(start, "start");
+		check_even(offset, "offset");
+		const segment = { block, start, offset, end: block.size - offset + start };
+		let segments = this.#units.get(unit_id);
+		if (segments === undefined) {
+			segments = [];
+			this.#units.set(unit_id, segments);
 		}
-		this[unit_id].push({
-			block,
-			start,
-			offset,
-			end: block.size - offset + start,
-		});
+		let index = segments.length;
+		while (index > 0 && segments[index - 1].start > start) index--;
+		segments.splice(index, 0, segment);
 	}
 }

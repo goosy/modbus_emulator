@@ -11,6 +11,8 @@ export type {
 export interface Modbus_Server extends EventEmitter {
 	start(): Promise<unknown>;
 	stop(): Promise<unknown>;
+	/** Sets the unit ids the server answers: one, a list, or every id with `"all"` / `"*"` / null. */
+	set_unit_ids(unit_id: number | number[] | "all" | "*" | null | undefined): void;
 }
 
 /**
@@ -59,9 +61,22 @@ export interface Serial_Options {
 	logger?: Emulator_Logger;
 }
 
+/** A byte range [start, end) of a unit, mapped to the bytes of a block from `offset`. */
+export interface Unit_Segment {
+	readonly block: Ldata;
+	readonly start: number;
+	readonly offset: number;
+	readonly end: number;
+}
+
 export class Unit_Map {
-	unit_ids: number[];
-	[unit_id: number]: { block: Ldata, start: number, offset: number, end: number }[];
+	/** The units that have a block, in the order of their first attachment. */
+	readonly unit_ids: number[];
+	/** The segments of a unit sorted by start; empty for a unit without block. */
+	segments(unit_id: number): readonly Unit_Segment[];
+	/** The block that holds a byte of a unit and the byte offset in it; null for an unmapped byte. */
+	resolve(unit_id: number, byte: number): { block: Ldata, offset: number } | null;
+	/** @throws {RangeError} When start or offset is not an even non-negative integer. */
 	attach_unit(unit_id: number, block: Ldata, start?: number, offset?: number): void;
 }
 

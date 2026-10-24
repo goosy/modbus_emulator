@@ -239,7 +239,7 @@ export class Modbus_Emulator {
 	#check_server_units(entries, errors) {
 		for (const { where, options } of entries) {
 			for (const id of options.unit_ids ?? []) {
-				if (!this.unit_map.unit_ids.includes(id)) errors.push(`${where}: unit_ids has unit ${id}, which has no block`);
+				if (this.unit_map.segments(id).length === 0) errors.push(`${where}: unit_ids has unit ${id}, which has no block`);
 			}
 		}
 	}
