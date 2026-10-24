@@ -28,8 +28,6 @@ yarn.lock
 .vscode/
 .vs/
 
-/dist
-
 # local data
 /.local
 

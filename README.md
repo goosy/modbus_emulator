@@ -103,8 +103,7 @@ See [doc/spec.md](doc/spec.md) for the full specification and [doc/design.md](do
 
 ```sh
 pnpm install
-pnpm build   # bundle src/index.js into dist/modbus_emulator.js
-pnpm test    # build, then node --test
+pnpm test
 pnpm lint
 ```
 

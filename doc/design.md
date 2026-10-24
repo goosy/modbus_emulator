@@ -20,7 +20,7 @@ Dependencies:
 - `es-modbus`, `yaml`: runtime dependencies that stay external. This package is a dependency of other packages and not an application, so it does not bundle them.
   - The application that uses it bundles them once, which drops the unused `Modbus_Client` and keeps one copy of the shared code and one `prebuilds` directory of the serial port bindings (they are found next to the bundle that holds them, in the `prebuilds` directory of es-modbus when it is installed as a package).
   - `Modbus_Server` is declared in `src/index.d.ts` as the small interface that callers use, because es-modbus has no declarations.
-- Bundling: `rolldown.config.js` takes its `external` list from `dependencies`, so it only joins the source files of this package.
+- Publishing: the package publishes `src` as is, with no build step. Bundling belongs to the application, so a bundle of this package would only join its own source files.
 - Versions and co-development:
   - `layout-data` is pinned to a published version.
   - To co-develop with an unpublished version of a dependency (layout-data, es-modbus), reference it temporarily through yalc (`file:.yalc/<name>`), which installs the published content like an ordinary dependency, and switch back to a version number before committing or publishing.
@@ -60,6 +60,5 @@ Dependencies:
 
 ## 5. Build and Test
 
-- `pnpm build`: rolldown bundles `src/index.js` into `dist/modbus_emulator.js`.
-- `pnpm test`: builds first, then runs `node --test`. The tests import `src`, except a smoke test of the bundle: it checks that `dist` exports what `src` exports, keeps layout-data external and serves a master. The tests use the es-modbus `Modbus_Client` as the master. The TCP servers under test listen on port 0 and the tests read the port the system picked, so no other process can take it between probing and listening. The RTU serial port is tested for construction only.
+- `pnpm test`: runs `node --test`. The tests import `src`, which is what the package publishes; one test imports the package by its own name, to check that `exports` resolves to `src`. The tests use the es-modbus `Modbus_Client` as the master. The TCP servers under test listen on port 0 and the tests read the port the system picked, so no other process can take it between probing and listening. The RTU serial port is tested for construction only.
 - `pnpm lint`: ESLint.

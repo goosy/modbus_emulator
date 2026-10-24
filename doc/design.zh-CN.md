@@ -19,7 +19,7 @@
 - `es-modbus`、`yaml`：运行时依赖，保持外部引用。本包是给其他包依赖的，不是应用，所以不打包它们。
   - 使用本包的应用把它们统一打包一次：未用到的 `Modbus_Client` 随之去掉，共用的代码只有一份，串口原生模块的 `prebuilds` 目录也只有一处（它们在持有它们的包旁边查找；作为包安装时就是 es-modbus 自己的 `prebuilds` 目录）。
   - `Modbus_Server` 在 `src/index.d.ts` 里声明为调用方用到的小接口，因为 es-modbus 没有类型声明。
-- 打包：`rolldown.config.js` 的 `external` 列表取自 `dependencies`，所以只把本包自己的源文件合并起来。
+- 发布：本包原样发布 `src`，没有构建步骤。打包是应用的事，给本包打包只会把它自己的源文件合并起来。
 - 版本与联调：
   - `layout-data` 锁定为已发布的版本号。
   - 联调尚未发布的依赖（layout-data、es-modbus）时，只用 yalc 临时引用（`file:.yalc/<name>`），它按普通依赖安装发布内容；提交和发布前必须改回版本号。
@@ -59,6 +59,5 @@
 
 ## 5. 构建与测试
 
-- `pnpm build`：rolldown 把 `src/index.js` 打包为 `dist/modbus_emulator.js`；
-- `pnpm test`：先构建，再 `node --test`；测试导入 `src`，另有一个打包产物的冒烟测试，核对 `dist` 的导出与 `src` 一致、layout-data 保持外部依赖、能为主站提供服务；测试用 es-modbus 的 `Modbus_Client` 作主站；被测的 TCP 服务监听端口 0，测试读取系统选定的端口，避免探测与监听之间端口被其他进程占用；RTU 串口只测构造；
+- `pnpm test`：`node --test`；测试导入 `src`，即本包发布的内容；另有一个测试按包名导入本包，核对 `exports` 解析到 `src`；测试用 es-modbus 的 `Modbus_Client` 作主站；被测的 TCP 服务监听端口 0，测试读取系统选定的端口，避免探测与监听之间端口被其他进程占用；RTU 串口只测构造；
 - `pnpm lint`：ESLint。
