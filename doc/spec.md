@@ -29,7 +29,8 @@ Out of scope: the Modbus master (client), the business logic of a device (implem
 - Holding registers and input registers have the same content. Registers and coils are readable and writable.
 - Writes go through the write methods of Ldata, so the `change` and `write` events of the block fire as usual.
 - An FC 16 / FC 15 request is atomic: each block it reaches is written once, emitting one `write` and one `access` of kind `write`; when a write fails midway, every block reached is restored and the master gets exception 0x04. FC 6 / FC 5 write one point. This is done by the handler, so a server assembled with `create_handler` behaves the same.
-- An error thrown by a listener of a block (`change`, `write`, `access`) when the writes of a request are committed neither undoes them nor affects the other blocks: the master gets a normal response, and the handler emits `listener_error` with `{ block, error }`.
+- A read request emits one `access` of kind `read` per block it reaches, naming only the tags read; for coils, only the Bools of the bits read.
+- An error thrown by a listener of a block (`change`, `write`, `access`) when a request is committed neither undoes its writes nor affects the other blocks: the master gets a normal response, and the handler emits `listener_error` with `{ block, error }`.
 - An address in a unit with no block reads as 0 / false, and a write to it is ignored. No exception is returned, so a read across a gap still succeeds. The handler emits `unmapped` once per (type, unit, address), for at most 1024 addresses; after that, it emits `unmapped_limit` once and no further `unmapped` (see Events).
 - An unregistered unit id is answered with exception code 0x0B by es-modbus. An illegal function code, an illegal quantity, or an address out of range is answered with 0x01 / 0x03 / 0x02.
 

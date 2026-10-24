@@ -9,8 +9,8 @@ const UNIT = 5;
 const OTHER_UNIT = 9; // never attached: the server answers exception 0x0B
 
 /**
- * A minimal Ldata stand-in: the server reads through read_bytes and writes
- * through write_bytes and write_bit, in a transaction for a batch write;
+ * A minimal Ldata stand-in: the server reads through read_bytes and read_bit
+ * and writes through write_bytes and write_bit, in a transaction for a batch request;
  * check_count counts the writes. `buffer` is the content, for the assertions only.
  */
 function fake_block(size) {
@@ -22,6 +22,9 @@ function fake_block(size) {
 		check_count: 0,
 		read_bytes(offset = 0, length = size - offset) {
 			return Buffer.from(buffer.subarray(offset, offset + length));
+		},
+		read_bit(offset, mask) {
+			return (buffer[offset] & mask) !== 0;
 		},
 		write_bytes(offset, source) {
 			buffer.set(source, offset);

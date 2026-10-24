@@ -143,3 +143,61 @@ describe("batch writes", () => {
 		]);
 	});
 });
+
+describe("batch reads", () => {
+	test("an FC 3 request across blocks accesses each block once", async (t) => {
+		const { master, log } = await serve(t);
+
+		// registers 2..5: a.n, the Bools of a, b.r
+		const registers = await master.read([3, 2, 4], UNIT);
+
+		assert.deepEqual(log, ["a access read n,c0,c1,c2", "b access read r"]);
+		assert.deepEqual(registers, Buffer.from([0, 7, 0, 0, 0x3f, 0xc0, 0, 0]));
+	});
+
+	test("an FC 4 request reads the same content", async (t) => {
+		const { master, log } = await serve(t);
+
+		assert.deepEqual(await master.read([4, 2, 1], UNIT), Buffer.from([0, 7]));
+		assert.deepEqual(log, ["a access read n"]);
+	});
+
+	test("FC 1 and FC 2 requests across blocks access only the Bools of the bits read", async (t) => {
+		const { master, a, b, log } = await serve(t);
+		a.c2 = true;
+		b.c0 = true;
+		// coils 49..112, as in the FC 15 test, taken from the bytes of the unit
+		const image = Buffer.concat([a.read_bytes(), b.read_bytes()]);
+		const coils = Array.from({ length: 64 }, (_, i) => ((image[(49 + i) >> 3] >> ((49 + i) % 8)) & 1) === 1);
+		const expected = coil_bytes(coils);
+		log.length = 0;
+
+		for (const fc of [1, 2]) assert.deepEqual(await master.read([fc, 49, 64], UNIT), expected);
+
+		const per_request = ["a access read c1,c2", "b access read r,n,c0"];
+		assert.deepEqual(log, [...per_request, ...per_request]);
+	});
+
+	test("a listener error of an access read is emitted and the request is answered", async (t) => {
+		const { master, a, handler } = await serve(t);
+		const errors = [];
+		handler.on("listener_error", ({ block, error }) => errors.push(`${block.name}: ${error.message}`));
+		a.on("access", () => { throw new Error("listener of a"); });
+
+		assert.deepEqual(await master.read([3, 2, 1], UNIT), Buffer.from([0, 7]));
+		assert.deepEqual(errors, ["a: listener of a"]);
+	});
+
+	test("the unmapped registers and coils of a batch read read as 0 and are reported", () => {
+		const warnings = [];
+		const unit = make_unit();
+		const handler = create_handler(unit.unit_map, { logger: { warn: (message) => warnings.push(message) } });
+
+		assert.deepEqual(handler.get_holding_registers(6, 3, UNIT), [7, 0, 0]); // b.n, the Bools of b, then register 8
+		assert.deepEqual(handler.get_coils(127, 2, UNIT), [false, false]); // coil 127 of b (b.c2), then 128
+		assert.deepEqual(warnings, [
+			"unmapped holding register address 8 in unit 1",
+			"unmapped coil address 128 in unit 1",
+		]);
+	});
+});

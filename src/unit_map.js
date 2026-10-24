@@ -111,8 +111,9 @@ const in_transactions = (blocks, fn, report) => {
  * @param {Object} [options]
  * @param {{warn: (message: string) => void}} [options.logger] - Reports unmapped addresses; silent by default.
  * @return {EventEmitter} The handler: get_input_register, get_holding_register, set_holding_register,
- *   get_coil, set_coil, and the batch writes set_holding_registers, set_coils. It emits `listener_error`
- *   with `{ block, error }` for an error a block listener throws when a batch write commits.
+ *   get_coil, set_coil, and the batch methods get_input_registers, get_holding_registers, get_coils,
+ *   set_holding_registers, set_coils. It emits `listener_error` with `{ block, error }` for an error
+ *   a block listener throws when a batch request commits.
  */
 export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 	// An unmapped address (e.g. the gap between two data blocks of a unit)
@@ -141,9 +142,25 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 
 	const report_listener_error = (block, error) => handler.emit("listener_error", { block, error });
 
+	// one FC 3 / FC 4 request: one read_bytes per run, one access per block
+	const read_registers = (kind) => (addr, quantity, unit_id) => {
+		const values = new Array(quantity).fill(0);
+		const report = (unmapped) => report_unmapped(kind, unmapped, unit_id);
+		const runs = register_runs(addr, quantity, unit_map[unit_id], report);
+		in_transactions(blocks_of(runs), () => {
+			for (const { block, offset, index, count } of runs) {
+				const bytes = block.read_bytes(offset, count * 2);
+				for (let i = 0; i < count; i++) values[index + i] = bytes.readUInt16BE(i * 2);
+			}
+		}, report_listener_error);
+		return values;
+	};
+
 	const handler = Object.assign(new EventEmitter(), {
 		get_input_register: read_register("input register"),
 		get_holding_register: read_register("holding register"),
+		get_input_registers: read_registers("input register"),
+		get_holding_registers: read_registers("holding register"),
 		set_holding_register: (addr, value, unit_id) => {
 			const { block, offset } = get_register_info(addr, unit_map[unit_id]);
 			if (block == null) {
@@ -175,6 +192,17 @@ export function create_handler(unit_map, { logger = SILENT_LOGGER } = {}) {
 				return false;
 			}
 			return (block.read_bytes(offset, 1)[0] & bit_mask) > 0;
+		},
+
+		// one FC 1 / FC 2 request: one read_bit per coil, one access per block naming the Bools read
+		get_coils: (addr, quantity, unit_id) => {
+			const values = new Array(quantity).fill(false);
+			const report = (unmapped) => report_unmapped("coil", unmapped, unit_id);
+			const points = coil_points(addr, quantity, unit_map[unit_id], report);
+			in_transactions(blocks_of(points), () => {
+				for (const { block, offset, bit_mask, index } of points) values[index] = block.read_bit(offset, bit_mask);
+			}, report_listener_error);
+			return values;
 		},
 
 		set_coil: (addr, value, unit_id) => {

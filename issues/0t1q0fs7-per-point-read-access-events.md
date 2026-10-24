@@ -1,9 +1,9 @@
 ---
 id: 0t1q0fs7
 opened: 2026-10-17T23:58:14.000Z
-closed:
+closed: 2026-10-24T09:58:01.000Z
 title: 逐点读取使 access 事件重复且不精确
-status: open        # open | accepted | fixed | rejected | wontfix
+status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
@@ -46,3 +46,5 @@ layout-data 0.2.0 的 `Ldata.transaction` 解决不了：它只推迟 `change` �
 - 只按开销裁定为 wontfix：开销确实可以忽略，但 `access` 的重复与不精确是正确性问题。
 
 ## 裁定
+
+问题成立，按解决提案修复：handler 实现批量读方法，按块切分请求，每块在 `transaction` 中读取（寄存器一次 `read_bytes`，线圈逐位 `read_bit`），一次读请求对每个块只发出一次精确的 `access`。

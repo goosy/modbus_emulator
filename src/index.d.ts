@@ -15,15 +15,21 @@ export interface Modbus_Server extends EventEmitter {
 
 /**
  * The es-modbus server handler over a unit map (see `create_handler`). It emits `listener_error`
- * for an error a block listener throws when a batch write commits.
+ * for an error a block listener throws when a batch request commits.
  */
 export interface Modbus_Handler extends EventEmitter {
 	get_holding_register(addr: number, unit_id: number): number;
 	get_input_register(addr: number, unit_id: number): number;
+	/** Reads the registers of one FC 3 request, one `access` per block. */
+	get_holding_registers(addr: number, quantity: number, unit_id: number): number[];
+	/** Reads the registers of one FC 4 request, one `access` per block. */
+	get_input_registers(addr: number, quantity: number, unit_id: number): number[];
 	set_holding_register(addr: number, value: number, unit_id: number): void;
 	/** Writes the registers of one FC 16 request atomically. */
 	set_holding_registers(addr: number, values: number[], unit_id: number): void;
 	get_coil(addr: number, unit_id: number): boolean;
+	/** Reads the coils of one FC 1 or FC 2 request, one `access` per block. */
+	get_coils(addr: number, quantity: number, unit_id: number): boolean[];
 	set_coil(addr: number, value: boolean, unit_id: number): void;
 	/** Writes the coils of one FC 15 request atomically. */
 	set_coils(addr: number, values: boolean[], unit_id: number): void;
