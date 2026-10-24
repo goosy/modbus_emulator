@@ -9,7 +9,7 @@
 | --- | --- |
 | `src/index.js` | The public interface of the package, including the forwarded API of layout-data |
 | `src/unit_map.js` | `Unit_Map` and the es-modbus server handler |
-| `src/server.js` | `create_tcp_server`, `create_rtu_server`, and the logging of server events |
+| `src/server.js` | `create_tcp_server`, `create_rtu_server` |
 | `src/emulator.js` | `Modbus_Emulator`: reads the description file, builds blocks and services |
 | `src/index.d.ts` | Type declarations of the public interface (hand-written) |
 
@@ -29,20 +29,20 @@ Dependencies:
 ## 2. Unit_Map and the Handler
 
 - `Unit_Map.attach_unit(unit_id, block, start, offset)` attaches a Ldata to the byte range `[start, start + size)` of a unit. A unit can hold several Ldata. `unit_ids` lists the attached unit ids.
-- `create_handler(unit_map, { logger })` returns the handler required by es-modbus, with snake_case method names: `get_holding_register`, `get_input_register`, `set_holding_register`, `get_coil` (used for both FC 1 and FC 2), `set_coil`.
+- `create_handler(unit_map)` returns the handler required by es-modbus, with snake_case method names: `get_holding_register`, `get_input_register`, `set_holding_register`, `get_coil` (used for both FC 1 and FC 2), `set_coil`. The handler is an `EventEmitter` (`Object.assign(new EventEmitter(), methods)`).
 - Register `addr` maps to byte `addr * 2`, read with `read_bytes` of Ldata in big-endian. Coil `addr` maps to bit `addr % 8` of byte `addr >> 3`.
 - Writes go through `write_bytes` / `write_bit` of Ldata, which detects the change after each write. The bytes of a Ldata are not reachable otherwise.
 - es-modbus calls the handler once per register or coil, so a register write is one `write_bytes` of two bytes (taken from a shared two-byte array, which `write_bytes` copies at once) and a register read is one `read_bytes` of two bytes.
-- An unmapped address reads as 0 / false and a write is ignored. It is reported through `logger.warn` once per (type, unit, address), to avoid flooding the log when polling. The reported addresses are kept in a set of at most 1024 entries (`MAX_UNMAPPED_REPORTS`): a master that scans the whole address space would otherwise grow it to 65536 x 3 x 256 entries. When the set is full, one last warning says so and later addresses are neither reported nor recorded.
-- Requests are validated by es-modbus first. When the handler throws, exception 0x04 is answered and the error is logged through the `handler_error` event.
+- An unmapped address reads as 0 / false and a write is ignored. It is emitted as `unmapped` once per (type, unit, address), to avoid flooding the listeners when polling. The reported addresses are kept in a set of at most 1024 entries (`MAX_UNMAPPED_REPORTS`): a master that scans the whole address space would otherwise grow it to 65536 x 3 x 256 entries. When the set is full, `unmapped_limit` is emitted once, and later addresses are neither emitted nor recorded.
+- Requests are validated by es-modbus first. When the handler throws, exception 0x04 is answered and es-modbus emits `handler_error` on the server.
 - An FC 16 request writes several registers in a row within one synchronous call. A caller that wants merged notifications can coalesce them with `setImmediate` (covered by a test).
 
 ## 3. Services
 
-- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, logger })`: creates a `Modbus_Server` with the handler. `unit_id` comes from the `unit_ids` option, which defaults to `unit_map.unit_ids`. es-modbus copies it into a set at construction, so a unit attached later has no effect: attach the units before creating the servers. `rtu` is passed to the option of the same name in es-modbus. The `handler` option is built with `create_handler` when omitted.
-- `Modbus_Emulator` builds one handler (`emulator.handler`) after the unit map is built, and passes it to all its servers. The handler only looks things up in the unit map and has no other state, so sharing it makes the unmapped-address warning reported once across all the servers, not once per server. The handler depends on the unit map and the logger, so it cannot live at module level: several emulators in one process would share it by mistake.
-- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, logger })`: `unit_ids` is the same. `port` takes the serial port path, from which es-modbus selects the RTU transport. The parameters are checked at construction, but the port is opened only at `start()`, so construction needs no hardware.
-- `normalize_logger(logger)` turns the caller's logger into an object with `info` / `warn` / `error`, silent for missing methods. Both kinds of server log `start`, `stop`, and the connection and disconnection of a client at `info` (they are normal events), and `error` / `handler_error` / socket errors at `error`.
+- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, handler })`: creates a `Modbus_Server` with the handler. `unit_id` comes from the `unit_ids` option, which defaults to `unit_map.unit_ids`. es-modbus copies it into a set at construction, so a unit attached later has no effect: attach the units before creating the servers. `rtu` is passed to the option of the same name in es-modbus. The `handler` option is built with `create_handler` when omitted.
+- `Modbus_Emulator` builds one handler (`emulator.handler`) after the unit map is built, and passes it to all its servers. The handler only looks things up in the unit map and has no other state, so sharing it makes the unmapped-address warning reported once across all the servers, not once per server. The handler depends on the unit map and keeps the set of reported addresses, so it cannot live at module level: several emulators in one process would share it by mistake.
+- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler })`: `unit_ids` is the same. `port` takes the serial port path, from which es-modbus selects the RTU transport. The parameters are checked at construction, but the port is opened only at `start()`, so construction needs no hardware.
+- The factories add no listener to a server: its events are the ones of es-modbus, and its caller listens to them, `error` included.
 
 ## 4. Modbus_Emulator
 
@@ -50,8 +50,10 @@ Dependencies:
 - Validation collects all violations and throws them at once: files that cannot be read, layout errors, blocks (unknown keys, `unit_id` range, even `start` and `offset`, duplicate names, layout existence), and servers (unknown keys by protocol, protocol, port range, a port already used by an earlier server, the format of `unit_ids`, and whether each listed unit has a block, which is checked after the blocks are read). When the layout registration fails, layout-data registers none of the layouts, so the layout existence of the blocks is not checked: every block would repeat it and bury the real error.
 - One Ldata is created per block and attached to the unit map. The emulator registers the layouts (`register_layout` can succeed only once per process, so one emulator per process), and a block is created from its layout name (`new Ldata(layout_name, block_name)`). One `Modbus_Server` is created per service, all sharing the same unit map.
 - `start(options)` starts all services in parallel and waits with `Promise.allSettled` until each has a result, then handles the failures. It relies on these behaviors of es-modbus: the `start` / `stop` calls of a server are queued; `stop()` runs after an earlier `start` ends and never rejects; `stop()` on a server never started returns at once; `start()` on a running server stops it first. So by default a failure calls `stop()` on all services, including those that were running before the call (`start()` is a restart for them), and then throws. With `partial` the started services are left running. Both modes throw the same `AggregateError`, so a failure is never silent; they differ only in whether the other services are stopped.
-- The label of a service, its place in the description (`servers[i]`, prefixed by its file when there are several) and its address (`modbus://host:port`, `rtu://host:port`, `serial://path`), is kept at construction. It names the service in the errors of `start()`.
+- The label of a service, its place in the description (`servers[i]`, prefixed by its file when there are several) and its address (`modbus://host:port`, `rtu://host:port`, `serial://path`), is kept at construction. It names the service in the errors of `start()` and in the payload of the forwarded server events.
 - `stop()` stops all services in parallel with `Promise.all`.
+- Events: `Modbus_Emulator` extends `EventEmitter`. After creating a server, it subscribes to the es-modbus events of the server and re-emits each `<name>` as `server_<name>` with `{ server, label }` plus the `socket` or `error` argument; it subscribes to the events of the handler and re-emits them unchanged. Its listener of `error` keeps an error of a server from throwing, and it emits no `error` of its own, so an emulator without listeners never throws from an event.
+- The diagnostics found at construction happen before a caller can attach a listener, so they are pushed to `warnings` (an array of strings) instead of being emitted.
 
 ## 5. Build and Test
 

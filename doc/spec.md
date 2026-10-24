@@ -10,7 +10,7 @@ modbus_emulator is a Modbus device emulator library. It provides Modbus slave se
 - One emulator can provide several services at the same time, sharing the same set of data blocks.
 - It is published as a library. A controller or similar program can use its server part to publish its own data blocks to a host (HMI/SCADA).
 
-Out of scope: the Modbus master (client), the business logic of a device (implemented by the caller through Ldata), and the concrete logger (injected by the caller).
+Out of scope: the Modbus master (client), the business logic of a device (implemented by the caller through Ldata), and the output of diagnostics (the package emits events, and the caller decides what to do with them).
 
 ## 2. Terms
 
@@ -28,23 +28,38 @@ Out of scope: the Modbus master (client), the business logic of a device (implem
 - Coil `addr` corresponds to bit `addr % 8` of byte `addr >> 3`.
 - Holding registers and input registers have the same content. Registers and coils are readable and writable.
 - Writes go through the write methods of Ldata, so the `change` and `write` events of the block fire as usual.
-- An address in a unit with no block reads as 0 / false, and a write to it is ignored. No exception is returned, so a read across a gap still succeeds. A warning is reported once per (type, unit, address), for at most 1024 addresses; after that, one more warning says that further ones are not reported.
+- An address in a unit with no block reads as 0 / false, and a write to it is ignored. No exception is returned, so a read across a gap still succeeds. The handler emits `unmapped` once per (type, unit, address), for at most 1024 addresses; after that, it emits `unmapped_limit` once and no further `unmapped` (see Events).
 - An unregistered unit id is answered with exception code 0x0B by es-modbus. An illegal function code, an illegal quantity, or an address out of range is answered with 0x01 / 0x03 / 0x02.
 
 ## 4. Interface
 
-- `Modbus_Emulator(source, options)`: the main constructor. `source` is the path of a description file (section 5), or a list of paths: the files are read together as one description. It builds the blocks and the services.
-  - `blocks`: a map from block names to Ldata. `block(name)` gets one block. `unit_map`: the unit map. `servers`: the server instances. `layouts`: the registered layouts by name (read-only). `handler`: the handler shared by all the servers.
+- `Modbus_Emulator(source)`: the main constructor. `source` is the path of a description file (section 5), or a list of paths: the files are read together as one description. It builds the blocks and the services.
+  - `blocks`: a map from block names to Ldata. `block(name)` gets one block. `unit_map`: the unit map. `servers`: the server instances. `layouts`: the registered layouts by name (read-only). `handler`: the handler shared by all the servers. `warnings`: the diagnostics found at construction, as strings, kept here because no listener can be attached before the constructor returns; empty when there are none.
   - `start(options)`: starts all services. By default it is all or nothing: when any service fails to start, all services are stopped, so a resolved `start()` means that all of them run and a rejected one that none runs. With `{ partial: true }` it starts what it can, and the services that started keep running. In both modes a failure rejects with an `AggregateError` that lists every failed service: each item is an `Error` whose message names the service, such as `servers[1] (modbus://0.0.0.0:503): ...`, with the original error as its `cause`.
   - `stop()`: stops all services.
   - An invalid description file throws an `Error` whose `errors` property lists all violations. A file that cannot be read is one of them.
-- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, handler, logger })`: creates a Modbus TCP service. `host` defaults to `0.0.0.0` and `port` to 502; `unit_map` is required. With `rtu: true` it uses RTU frames on the TCP socket (RTU over TCP). It returns the es-modbus `Modbus_Server`, not started.
-- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, logger })`: creates an RTU slave on a serial port. `unit_map` is required. The defaults are 9600, `none`, 8 and 1 for `baud_rate`, `parity`, `data_bits` and `stop_bits`. It returns a `Modbus_Server`, and the port is opened only at `start()`.
+- `create_tcp_server(host, port, unit_map, { rtu, unit_ids, handler })`: creates a Modbus TCP service. `host` defaults to `0.0.0.0` and `port` to 502; `unit_map` is required. With `rtu: true` it uses RTU frames on the TCP socket (RTU over TCP). It returns the es-modbus `Modbus_Server`, not started.
+- `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler })`: creates an RTU slave on a serial port. `unit_map` is required. The defaults are 9600, `none`, 8 and 1 for `baud_rate`, `parity`, `data_bits` and `stop_bits`. It returns a `Modbus_Server`, and the port is opened only at `start()`.
 - `unit_ids`: optional, the unit ids a service answers. It defaults to all the units of `unit_map`. A unit id outside the list is answered with exception code 0x0B by es-modbus.
 - `handler`: optional, the handler to serve (the result of `create_handler`). Servers of one unit map can share one. By default it is built from the unit map.
-- `Unit_Map` / `create_handler(unit_map, { logger })`: the unit map and the es-modbus server handler, for callers that do not use a description file (such as a controller) and assemble things themselves.
+- `Unit_Map` / `create_handler(unit_map)`: the unit map and the es-modbus server handler, for callers that do not use a description file (such as a controller) and assemble things themselves.
 - `Ldata`, `Ltag`, `register_layout`, `get_layout`, `io_index_table`, `render_types` and the types of layout-data that go with them (`Layout`, `Layout_Tag`, `Layout_Item`, `Tag_Item`, `Include_Item`, `Layout_Description`, `Layout_Source`, `Registered_Layouts`, `Endian`, `Tag_Type`): the API of [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md) that callers use, forwarded as it is. The blocks are `Ldata` objects, so this package is the one place the callers take this API from: they do not depend on layout-data themselves, and the process has one copy of it, which `register_layout` needs (it succeeds once per process). The forwarded API follows the version of layout-data this package depends on.
-- `logger`: optional, with `info` / `warn` / `error` methods. When it is absent, or a method is missing, nothing is output.
+
+### Events
+
+The package reports its diagnostics as events and outputs nothing itself.
+
+- The handler returned by `create_handler` is an `EventEmitter`:
+
+  | Event | Payload | When |
+  | --- | --- | --- |
+  | `unmapped` | `{ kind, unit_id, addr }`, `kind` is `"holding_register"`, `"input_register"` or `"coil"` | an unmapped address is read or written; once per (kind, unit, address), for at most 1024 addresses |
+  | `unmapped_limit` | `{ limit }` | the 1024th address was emitted; no further unmapped address is emitted |
+  | `listener_error` | `{ block, error }` | a listener of a block (`change`, `write`, `access`) throws when a request is committed; the data stay written and the master gets a normal response |
+
+- The servers are es-modbus `Modbus_Server`s with its events: `start`, `stop`, `socket_connect` (socket), `socket_disconnect` (socket), `socket_error` (error), `error` (error), `handler_error` (error). The factories add no listener. An `EventEmitter` throws an `error` event that has no listener, so a caller that uses the factories must listen to `error` of each server.
+- A handler that throws, or returns invalid values (a batch read of the wrong length, a register value out of range), is reported by es-modbus as `handler_error`, and the master gets exception 0x04.
+- `Modbus_Emulator` is an `EventEmitter`. It forwards the event `<name>` of each server as `server_<name>` (`server_start`, `server_stop`, `server_socket_connect`, `server_socket_disconnect`, `server_socket_error`, `server_error`, `server_handler_error`) with the payload `{ server, label }`, plus `socket` or `error` when es-modbus passes one; `label` names the service as in the errors of `start()`, such as `servers[1] (modbus://0.0.0.0:503)`. It forwards the events of the handler with their names and payloads. It always listens to `error` of its servers and never emits `error` itself.
 
 ## 5. Description File
 

@@ -3,7 +3,7 @@ id: mnwdf2fy
 opened: 2026-10-23T13:15:47.067Z
 closed:
 title: 诊断信息通过注入的 logger 输出，调用方无法以事件方式处理
-status: open        # open | accepted | fixed | rejected | wontfix
+status: accepted    # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
@@ -33,15 +33,23 @@ decision_title: 裁定
 - `error` 事件：`EventEmitter` 在无监听器时发出 `error` 会抛出异常。去掉 `log_events` 后 server 的 `error` 不再有默认监听器，一个连接错误就可能使进程崩溃。因此模拟器始终监听每个 server 的 `error`，并改名转发（如 `server_error`，载荷 `{ server, error }`），不发出自己的 `error`。直接使用工厂的调用方须自行监听 server 的 `error`，在 spec 中写明。
 - 构造期的诊断（如 issue#rks1v7pr 的警告）发生在调用方能挂监听器之前，不用事件，收入模拟器的 `warnings` 属性。
 
-待定：各事件名与载荷格式。
+事件名与载荷：
+
+- handler 发出：
+  - `unmapped`，载荷 `{ kind, unit_id, addr }`，`kind` 为 `"holding_register"` / `"input_register"` / `"coil"`；按上述去重，同一地址只发一次。
+  - `unmapped_limit`，载荷 `{ limit }`：已发出的地址达到上限（1024）时发出一次，之后的地址不再发出。
+  - `listener_error`，载荷 `{ block, error }`：提交阶段块的监听器（`change` / `write` / `access`）抛出的异常；数据已写入，主站照常收到应答（issue#6w441q89、issue#0t1q0fs7）。
+- 模拟器转发：
+  - server 的事件统一加前缀 `server_`：`server_start`、`server_stop`、`server_socket_connect`、`server_socket_disconnect`、`server_socket_error`、`server_error`、`server_handler_error`。载荷为 `{ server, label, ... }`，es-modbus 原有的参数放入命名字段（`socket` / `error`）；`label` 即 `start()` 报错中的服务标签，如 `servers[1] (modbus://0.0.0.0:503)`。
+  - handler 的事件按原名、原载荷转发。
+- handler 返回无效值（批量读结果长度不符、寄存器值越界）由 es-modbus 校验，作为 `handler_error` 报告，主站收到 0x04，经模拟器转发为 `server_handler_error`，不另设事件。本包的 handler 由块的字节构造返回值，出现无效值只能是本包的缺陷。
+
+现状：spec / design（含中文版）已是最终形态，目前的代码没有实现去掉 `logger`、变更接口（工厂与 `create_handler` 去掉 `logger` 选项、`Modbus_Emulator` 继承 `EventEmitter` 并转发事件、`warnings` 属性）等文档要求的功能，`src/index.d.ts` 与 README 也仍是旧接口。
+
+过渡：issue#6w441q89、issue#0t1q0fs7 先于本 issue 实现时，handler 先改为 `EventEmitter`，只发出 `listener_error`（新增，不 breaking），模拟器暂时把它转给 `logger.error`；未映射地址仍经 `logger` 报告，到实现本 issue 时一并改为事件。
 
 需同步 spec / design（含中文版）、`src/index.d.ts`、README。属 breaking change。
 
-放弃的方案：
-
-- 只在 server 上发出事件：handler 级事件无法归属某个 server，且调用方要逐个订阅、自行维护与描述条目的对应关系。
-- 只在模拟器上发出事件：手工装配的调用方没有模拟器，拿不到事件。
-- 每次访问都发出未映射地址事件、由订阅方去重：主站轮询时会持续淹没监听器。
-- 只去掉一侧的 logger 包装：工厂是公开函数，直接调用者依赖工厂内的包装，模拟器侧的包装又用于 handler，且整套 logger 即将去掉，单独修改没有意义。
-
 ## 裁定
+
+问题成立，需修复：调用方只能拿到格式化后的日志文本，无法按类型处理诊断信息，也无法得知其来源。采用解决提案的方案，去掉 `logger`，由 handler 与 server 发出事件，模拟器汇总转发；事件名与载荷见解决提案。
