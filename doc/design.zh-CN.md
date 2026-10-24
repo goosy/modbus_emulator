@@ -27,7 +27,7 @@
 
 ## 2. Unit_Map 与 handler
 
-- `Unit_Map` 内部用私有的 `Map` 保存单元号到该单元各段的映射，单元不再是实例自身的属性。`attach_unit(unit_id, block, start, offset)` 检查 `start` 与 `offset` 为偶数非负整数，使自行装配单元表的调用方与模拟器受到同样的保护，并按 `start` 把段 `{ block, start, offset, end: start + size - offset }` 插入到位。一个单元可以挂多个 Ldata。
+- `Unit_Map` 内部用私有的 `Map` 保存单元号到该单元各段的映射，单元不再是实例自身的属性。`attach_unit(unit_id, block, start, offset)` 检查 `start` 与 `offset` 为偶数非负整数，使自行装配单元表的调用方与模拟器受到同样的保护，并按 `start` 把段 `{ block, start, offset, end: start + size - offset }` 插入到位。插入前检查新段与相邻两段都不重叠：同一单元的段已排序且互不重叠，只有相邻的段可能与新段重叠。重叠时抛出 `Error`，指明两个数据块，单元表保持不变。一个单元可以挂多个 Ldata。
 - `resolve(unit_id, byte)` 用二分查找找出 `start` 不大于 `byte` 的最后一段，`byte` 小于该段的 `end` 时即已映射。handler 对每个点都经它查找。
 - `create_handler(unit_map)` 返回 es-modbus 要求的 handler，方法名为 snake_case：`get_holding_register`、`get_input_register`、`set_holding_register`、`get_coil`（同时用于 FC 1 和 FC 2）、`set_coil`，以及批量方法 `get_holding_registers` / `get_input_registers` / `get_coils` / `set_holding_registers` / `set_coils`：es-modbus 对一次 FC 3 / FC 4 / FC 1 与 FC 2 / FC 16 / FC 15 请求只调用一次，而不是每个点一次。有批量读时 es-modbus 不再调用逐点读，逐点读留给 handler 的调用方。handler 是 `EventEmitter`（`Object.assign(new EventEmitter(), methods)`）。
 - 寄存器 `addr` 对应字节 `addr * 2`，按大端用 Ldata 的 `read_bytes` 读取；线圈 `addr` 对应字节 `addr >> 3` 的第 `addr % 8` 位。
@@ -49,7 +49,7 @@
 ## 4. Modbus_Emulator
 
 - 构造：`source` 是路径或路径列表，每个文件用 `yaml` 解析；列表项也可以是对象，这是给控制器按自己的配置拼出描述用的内部入口，不属于公开接口（规范和类型声明只写文件路径），其中相对的 `layouts_file` 相对于当前目录；从每个文件取出根键 `blocks`、`servers`、`layouts_file`：`blocks` 和 `servers` 按文件顺序连接（有多个文件时，出错信息带文件名前缀），`layouts_file` 相对于它自己所在的文件，文件的其余部分（`layouts` 与片段，如有）原样作为一个来源；这些来源和布局文件作为同一次 `layout-data` `register_layout` 调用的来源，一并注册（`blocks` 和 `servers` 不会传给它，否则会被当成片段）；没有来源时模拟器不注册，数据块使用进程里已注册的布局。
-- 校验收集全部违规项后一次抛出：无法读取的文件、布局错误、数据块（未知键、`unit_id` 范围、`start` 与 `offset` 为偶数、名称重复、布局是否存在）、服务（按协议检查未知键、协议、端口范围、端口已被前面的服务使用、`unit_ids` 的格式，以及其中的单元号是否有数据块，后者在数据块读完后检查）。布局注册失败时，layout-data 一个布局也不注册，因此不检查数据块的布局是否存在：否则每个数据块都会重复报错，淹没真正的错误。
+- 校验收集全部违规项后一次抛出：无法读取的文件、布局错误、数据块（未知键、`unit_id` 范围、`start` 与 `offset` 为偶数、名称重复、布局是否存在，以及同一单元内字节区间的重叠：即 `attach_unit` 的错误，前缀为该数据块条目）、服务（按协议检查未知键、协议、端口范围、端口已被前面的服务使用、`unit_ids` 的格式，以及其中的单元号是否有数据块，后者在数据块读完后检查）。布局注册失败时，layout-data 一个布局也不注册，因此不检查数据块的布局是否存在：否则每个数据块都会重复报错，淹没真正的错误。
 - 每个数据块创建一个 Ldata 并挂到单元表；布局由模拟器注册（`register_layout` 每个进程只能成功调用一次，所以每个进程一个模拟器），数据块按布局名创建（`new Ldata(布局名, 数据块名)`）；每个服务创建一个 `Modbus_Server`，共用同一单元表。
 - `start(options)` 并行启动全部服务，用 `Promise.allSettled` 等每个服务都有结果后再处理失败。它依赖 es-modbus 的这些行为：同一服务的 `start` / `stop` 在内部排队执行；`stop()` 等前面的 `start` 结束后才执行，且从不 reject；对没有启动过的服务调用 `stop()` 立即返回；对运行中的服务调用 `start()` 会先停再启。因此缺省模式下有失败就对全部服务调用 `stop()`，包括调用前已在运行的服务（对它们而言 `start()` 本就是重启），然后抛出；`partial` 模式下已启动的服务保持运行。两种模式抛出同样的 `AggregateError`，失败不会被忽略，只在“是否停掉其他服务”上不同。
 - 服务标签在构造时保存：服务在描述中的位置（`servers[i]`，有多个文件时带文件名前缀）和地址（`modbus://host:port`、`rtu://host:port`、`serial://path`），用于在 `start()` 的错误和转发的服务事件载荷中标明服务。

@@ -42,7 +42,7 @@ modbus_emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - `create_tcp_server(host, port, unit_map, { rtu, unit_ids, handler })`：创建 Modbus TCP 服务，`host` 缺省 `0.0.0.0`、`port` 缺省 502，`unit_map` 必填；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
 - `Unit_Map` / `create_handler(unit_map)`：单元表和 es-modbus 的服务端 handler，供不用描述文件的调用方（如控制器）自行组装。
-  - `attach_unit(unit_id, block, start, offset)` 把数据块从其字节 `offset` 起放到单元的字节 `start` 处；两者缺省为 0，须为偶数非负整数，否则抛出 `RangeError`；
+  - `attach_unit(unit_id, block, start, offset)` 把数据块从其字节 `offset` 起放到单元的字节 `start` 处；两者缺省为 0，须为偶数非负整数，否则抛出 `RangeError`；同一单元内各数据块的字节区间不得重叠，重叠时抛出 `Error`，指明两个数据块；
   - `unit_ids`：有数据块的单元，按首次挂载的顺序；`segments(unit_id)`：单元的字节区间（`{ block, start, offset, end }`），按 `start` 排序，没有数据块的单元为空；`resolve(unit_id, byte)`：单元中某个字节所在的数据块及块内字节偏移（`{ block, offset }`），未映射时为 null。
 - `Ldata`、`Ltag`、`register_layout`、`get_layout`、`io_index_table`、`render_types`，以及与之相配的 layout-data 类型（`Layout`、`Layout_Tag`、`Layout_Item`、`Tag_Item`、`Include_Item`、`Layout_Description`、`Layout_Source`、`Registered_Layouts`、`Endian`、`Tag_Type`）：调用方用到的 [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md) 接口，原样转发。数据块就是 `Ldata` 对象，所以调用方只从本包取得这些接口，不再自己依赖 layout-data，进程里也只有一份（`register_layout` 每个进程只能成功调用一次，需要这一点）。转发的接口随本包所依赖的 layout-data 版本而变。
 - `unit_ids`：可选，该服务应答的单元号列表，省略时，工厂在创建服务时复制 `unit_map` 中的单元号；此后这个列表属于服务，与单元表相互独立：`attach_unit` 只改变单元表，与服务应答哪些单元没有任何关系。要给服务增加（或去掉）单元，调用其 `Modbus_Server` 的 `set_unit_ids`；列表外的单元号由 es-modbus 应答异常码 0x0B；
@@ -89,7 +89,7 @@ servers:
   - { protocol: rtu, port: COM3, baud_rate: 9600, parity: none }
 ```
 
-- `blocks[].name` 缺省为 `unit_<unit_id>`，数据块名不得重复；`offset`（可选）为数据块内的起始字节，须为偶数；
+- `blocks[].name` 缺省为 `unit_<unit_id>`，数据块名不得重复；同一单元内各数据块的字节区间不得重叠；`offset`（可选）为数据块内的起始字节，须为偶数；
 - `servers[].protocol` 取 `tcp`、`rtu_over_tcp`、`rtu`；`tcp` 和 `rtu_over_tcp` 的 `host` 缺省 `0.0.0.0`、`port` 缺省 502，`port` 为 0..65535 的整数（0 表示由系统分配）；`rtu` 的 `port` 为串口路径，可带 `baud_rate`、`parity`、`data_bits`、`stop_bits`；
 - 两个 `tcp` / `rtu_over_tcp` 服务不得使用相同的 `host` 和 `port`（端口 0 除外），不同 `host` 可用同一端口；两个 `rtu` 服务不得使用同一串口路径；
 - 数据块条目只有 `name`、`unit_id`、`layout`、`start`、`offset` 这些键；服务条目只有 `protocol`、`unit_ids`，以及 `tcp` / `rtu_over_tcp` 的 `host`、`port` 或 `rtu` 的 `port`、`baud_rate`、`parity`、`data_bits`、`stop_bits`；其他键是错误。根键不检查：`blocks`、`servers`、`layouts_file` 以外的键是 layout-data 的片段名；

@@ -182,7 +182,11 @@ export class Modbus_Emulator {
 			}
 			const block = new Ldata(layout, name);
 			this.blocks.set(name, block);
-			this.unit_map.attach_unit(unit_id, block, start, offset);
+			try {
+				this.unit_map.attach_unit(unit_id, block, start, offset);
+			} catch (error) {
+				errors.push(`${where}: ${error.message}`);
+			}
 		}
 	}
 

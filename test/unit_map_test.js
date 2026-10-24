@@ -43,4 +43,20 @@ describe("Unit_Map", () => {
 		assert.throws(() => unit_map.attach_unit(1, block("a", 4), 0, 0.5), /offset must be an even/);
 		assert.deepEqual(unit_map.unit_ids, []);
 	});
+
+	test("the blocks of one unit may not overlap", () => {
+		const unit_map = new Unit_Map();
+		const a = block("a", 8);
+		unit_map.attach_unit(1, a, 8); // bytes 8..15
+		unit_map.attach_unit(1, block("left", 8), 0); // bytes 0..7: adjacent
+		unit_map.attach_unit(1, block("right", 4), 16); // bytes 16..19: adjacent
+		unit_map.attach_unit(2, block("other", 8), 8); // another unit
+
+		const overlap = (name, size, start) => () => unit_map.attach_unit(1, block(name, size), start);
+		assert.throws(overlap("b", 4, 14), { message: "unit 1: bytes 14..17 of block b overlap bytes 8..15 of block a" });
+		assert.throws(overlap("c", 4, 6), { message: "unit 1: bytes 6..9 of block c overlap bytes 0..7 of block left" });
+		assert.throws(overlap("d", 2, 10), /bytes 10..11 of block d overlap bytes 8..15 of block a/);
+		assert.throws(overlap("e", 32, 0), /bytes 0..31 of block e overlap/);
+		assert.deepEqual(unit_map.segments(1).map((segment) => segment.block.name), ["left", "a", "right"]);
+	});
 });

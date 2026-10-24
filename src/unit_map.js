@@ -291,18 +291,23 @@ export class Unit_Map {
 	 * @param {number} [offset=0] - The byte offset in the block, even.
 	 * @return {void}
 	 * @throws {RangeError} When start or offset is not an even non-negative integer.
+	 * @throws {Error} When the bytes overlap the ones of another block of the unit.
 	 */
 	attach_unit(unit_id, block, start = 0, offset = 0) {
 		check_even(start, "start");
 		check_even(offset, "offset");
 		const segment = { block, start, offset, end: block.size - offset + start };
-		let segments = this.#units.get(unit_id);
-		if (segments === undefined) {
-			segments = [];
-			this.#units.set(unit_id, segments);
-		}
+		const segments = this.#units.get(unit_id) ?? [];
 		let index = segments.length;
 		while (index > 0 && segments[index - 1].start > start) index--;
+		// the segments are sorted and do not overlap: only the neighbors can overlap the new one
+		const [before, after] = [segments[index - 1], segments[index]];
+		const other = before?.end > start ? before : after?.start < segment.end ? after : null;
+		if (other) {
+			const bytes = ({ start, end }) => `bytes ${start}..${end - 1}`;
+			throw new Error(`unit ${unit_id}: ${bytes(segment)} of block ${block.name} overlap ${bytes(other)} of block ${other.block.name}`);
+		}
 		segments.splice(index, 0, segment);
+		this.#units.set(unit_id, segments);
 	}
 }

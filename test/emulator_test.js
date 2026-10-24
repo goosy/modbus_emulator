@@ -142,6 +142,20 @@ servers:
 		assert.match(errors.join("\n"), /servers\[3\]: unit_ids has unit 7, which has no block/);
 	});
 
+	test("the blocks of one unit may not overlap", () => {
+		const errors = errors_of(`
+blocks:
+  - { name: a, unit_id: 1, layout: PUMP }
+  - { name: b, unit_id: 1, layout: PUMP, start: 4 }
+  - { name: c, unit_id: 2, layout: PUMP, start: 4 }
+  - { name: d, unit_id: 1, layout: PUMP, start: 8 }
+servers:
+  - { protocol: tcp, port: 1502 }
+`);
+
+		assert.deepEqual(errors, ["blocks[1]: unit 1: bytes 4..11 of block b overlap bytes 0..7 of block a"]);
+	});
+
 	test("offset must be even", () => {
 		const errors = errors_of(`
 blocks:
