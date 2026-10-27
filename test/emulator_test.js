@@ -25,8 +25,8 @@ item_tables:
     - { name: a, type: UInt, offset: 0, init_value: 5 }
 `;
 
-// The package uses one scope per process: the first emulator of this file binds it (the scope named from
-// the time is tested in default_scope_test.js, the reuse of the layouts in layout_test.js)
+// The emulators of this file are loaded into one scope (the default scope and the reuse of the layouts
+// are tested in scope_test.js and layout_test.js)
 const SCOPE = "emulator_test";
 
 /** A description of the layouts above with the blocks and servers of a test. */
@@ -389,23 +389,11 @@ servers:
 		assert.equal(emulator.block("pump").layout, emulator.scope.get_layout("PUMP"));
 	});
 
-	test("an emulator given no scope takes the scope the package is bound to", () => {
-		const description = describe_blocks(ONE);
-		try {
-			const emulator = new Modbus_Emulator(description);
-			assert.equal(emulator.scope, get_scope(SCOPE));
-			assert.equal(emulator.block("one").a, 5);
-		} finally {
-			release(description);
-		}
-	});
-
-	test("the package uses one scope: another name is an error", () => {
-		assert.throws(
-			() => new Modbus_Emulator(describe_blocks(ONE), "other"),
-			(e) => { assert.deepEqual(e.errors, [`scope other: the package uses scope ${SCOPE}`]); return true; },
-		);
-		assert.equal(get_scope("other"), undefined);
+	test("a scope name that is not an identifier is an error", () => {
+		assert.throws(() => new Modbus_Emulator(describe_blocks(ONE), "not a name"), (e) => {
+			assert.deepEqual(e.errors, [`scope "not a name": the name is not an identifier`]);
+			return true;
+		});
 	});
 });
 

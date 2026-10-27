@@ -35,13 +35,13 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 
 ## 4. 接口
 
-- `Modbus_Emulator(descriptions, scope)`：主构造方法，`descriptions` 是 layout-data 的 `Description`（§5），或其列表，与登记域 `load` 的参数相同，原样交给它。调用方用本包转发的 `desc_file` 编译描述文件，或用 `yaml` 编译 YAML 文本；本包不读取文件，路径和普通对象都不是描述。描述给出布局、要建立的数据块和服务的参数，构造方法据此建立数据块和服务。`scope`（可选）是 layout-data 登记域的名称（见下文“布局登记域”）；
+- `Modbus_Emulator(descriptions, scope)`：主构造方法，`descriptions` 是 layout-data 的 `Description`（§5），或其列表，与登记域 `load` 的参数相同，原样交给它。调用方用本包转发的 `desc_file` 编译描述文件，或用 `yaml` 编译 YAML 文本；本包不读取文件，路径和普通对象都不是描述。描述给出布局、要建立的数据块和服务的参数，构造方法据此建立数据块和服务。`scope`（可选）是描述装入的 layout-data 登记域的名称，缺省为 `modbus_emulator`；
   - 与描述结构相同的对象用 `yaml(JSON.stringify(object))` 编译，因为 JSON 是 YAML 1.2 的子集。YAML 文本没有所在文件，其 `imports` 要写绝对路径或 `file:` URL；
-  - `blocks`：数据块名到 Ldata 的映射；`block(name)` 取得一个数据块；`unit_map`：单元表；`servers`：服务实例，一个数组，第 `i` 项对应描述（按顺序连接后）中的第 `i` 个服务条目；每个服务的 `name` 是它的标签，即它在描述中的位置和地址，如 `servers[1] (modbus://0.0.0.0:503)`，因此可以按名称查找（`servers.find((server) => server.name === ...)`）；`scope`：描述装入的 layout-data 登记域，即本包的登记域（只读）；`layouts`：描述的布局（按名称，只读）；`handler`：全部服务共用的 handler；`warnings`：构造时发现的诊断信息（字符串），构造函数返回前无法挂监听器，所以收在这里；没有时为空；
+  - `blocks`：数据块名到 Ldata 的映射；`block(name)` 取得一个数据块；`unit_map`：单元表；`servers`：服务实例，一个数组，第 `i` 项对应描述（按顺序连接后）中的第 `i` 个服务条目；每个服务的 `name` 是它的标签，即它在描述中的位置和地址，如 `servers[1] (modbus://0.0.0.0:503)`，因此可以按名称查找（`servers.find((server) => server.name === ...)`）；`scope`：描述装入的 layout-data 登记域（只读）；`layouts`：描述在该登记域中的布局（按名称，只读），键的顺序没有意义；`handler`：全部服务共用的 handler；`warnings`：构造时发现的诊断信息（字符串），构造函数返回前无法挂监听器，所以收在这里；没有时为空；
   - `start(options)`：启动全部服务。缺省为全部或全部不：任一服务启动失败时停掉全部服务，因此 `start()` 成功即全部在运行，失败即全部已停止；`{ partial: true }` 时尽力启动，已启动的服务保持运行。两种模式下有失败都以 `AggregateError` 拒绝，列出全部失败的服务：每项是一个 `Error`，消息以服务的 `name` 开头，如 `servers[1] (modbus://0.0.0.0:503): ...`，原始错误放在 `cause`；
-  - `stop()`：停止全部服务；
-  - 布局登记域：本包在每个进程中只使用一个 layout-data 登记域，由参数 `scope` 指定；数据块的全部布局都属于它。省略 `scope` 时，模拟器使用本包已绑定的登记域；尚未绑定时，用当前的 UTC 时间构成名称：`s` 加上从年到毫秒的数字，如 `s20261027004920133`。名称不是标识符时是 `create_scope` 的错误。第一个装入描述的模拟器把本包绑定到这个登记域，直到进程结束；之后的模拟器给出其他名称是错误。这个登记域使本包的布局与调用方、其他使用 layout-data 的库的登记域互不相干，不存在时创建。描述由登记域的 `load` 装入：它注册描述的布局，名称与结构都相同的布局复用（同名而结构不同、或结构相同而名称不同是错误），并建立数据块的 Ldata。布局持有其 Ldata 的名称，所以一个布局的一个数据块名在进程中只能装入一次，不论之后构造成功还是失败；描述有误时，改正后重启进程。在同一进程中运行多个模拟器，或不动布局只重建模拟器（如换端口、主机），要用其他数据块名；
-  - 描述不合法时抛出 `Error`，其 `errors` 属性列出全部违规项：本包的，以及登记域 `load` 的；列表项不是 `Description` 也是其中一项。读取和编译的错误由 `desc_file` 和 `yaml` 抛出，它们指明文件。本包的检查在装入之前：检查失败时，登记域中什么都不装入。
+  - `stop()`：停止全部服务，并把数据块名交还给其布局（见下面的布局登记域）；数据块照常可用，`start()` 会再次服务它们；
+  - 布局登记域：描述不指定登记域，登记域只在代码中选择。构造方法把描述装入名为 `scope` 的登记域，不存在时创建（layout-data 的 `get_scope` / `create_scope`；名称不是标识符时是 `create_scope` 的错误），它使这些布局与调用方、其他使用 layout-data 的库的登记域互不相干。装入就是 layout-data 的 `load`：在一个登记域中，与已有布局同名且结构相同的布局共用，同名而结构不同、或结构相同而名称不同是错误；这样的布局要给模拟器指定不同的登记域。每个数据块是由其布局建立的 Ldata，布局持有数据块名：同一布局的同一数据块名是错误，直到持有它的模拟器停止（`stop()`）或构造失败。因此同一份描述在先前的模拟器 `stop()` 后可以在同一登记域中再次构造，同时构造多个则用不同的登记域；
+  - 描述不合法时抛出 `Error`，其 `errors` 属性列出全部违规项：本包的，以及登记域 `load` 的；列表项不是 `Description` 也是其中一项。读取和编译的错误由 `desc_file` 和 `yaml` 抛出，它们指明文件。本包的检查在装入之前：检查失败时，登记域中什么都不装入。装入之后才发现的失败（数据块重叠、`unit_ids` 中的单元没有数据块）使已注册的布局留在登记域中，数据块名交还。
 - `create_tcp_server(unit_map, { host, port, rtu, unit_ids, handler, name })`：创建 Modbus TCP 服务，`host` 缺省 `0.0.0.0`、`port` 缺省 502，`unit_map` 必填；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, name })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
 - `name`：可选，`Modbus_Server` 的 `name`，在事件和错误中标明服务；es-modbus 的缺省值为 `Modbus_Server`；

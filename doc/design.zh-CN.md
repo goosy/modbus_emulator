@@ -48,14 +48,13 @@
 
 ## 4. Modbus_Emulator
 
-- 构造：`descriptions` 是一个 `Description` 或其列表，由调用方用 layout-data 的 `desc_file` 或 `yaml` 编译；本包不读取文件，读取和编译的错误（已指明文件）交给这两个函数。原先给控制器用的对象入口取消：这样的对象用 `yaml(JSON.stringify(object))` 编译。列表项没有 `blocks` 列表（每个 `Description` 都有）是错误（`not a Description`），不再读取错误列表项的根键。从每个描述取 `blocks`（其条目保留本包的键 `unit_id`、`start`、`offset`）和 `Description` 原样保留的根键 `servers`，按列表顺序连接；有多个描述时，本包的出错信息带 `description #N` 前缀，与 layout-data 对列表项的称呼相同。参数 `scope` 给出登记域名称；省略时，名称取本包已绑定的登记域的名称；尚未绑定时，取 `s` 加上 `new Date().toISOString()` 中的数字（从年到毫秒的 UTC 时间，如 `s20261027004920133`），它是一个标识符。给出的名称是否为标识符交给 `create_scope` 判断，收集它的错误。
-- 绑定：`src/emulator.js` 用一个模块级变量保存本包的登记域，初始为空。它已设置而模拟器得到其他登记域名称时是错误（`scope X: the package uses scope Y`），不再装入。描述装入登记域后设置它；此后构造即使失败，它也保持设置。装入失败不设置它，所以改正后的描述仍可使用其他登记域。
-- 登记域：登记域为 `get_scope(name) ?? create_scope(name)`，描述原样交给它的一次 `load` 调用：它注册布局（指纹与名称都相同的布局复用），并建立数据块的 Ldata，全部或全部不；其错误被收集。为失败的装入创建的登记域保留下来，届时复用。
-- 校验收集全部违规项后一次抛出。本包的检查在装入之前，检查失败时登记域中什么都不装入：数据块（未知键、`unit_id` 范围、`start` 与 `offset` 为偶数）、服务（按协议检查未知键、协议、端口范围、`rtu` 的串口参数（取值与 es-modbus 接受的一致）、端口已被前面的服务使用、`unit_ids` 的格式）。数据块的 `name` 和 `layout` 由 layout-data 在编译描述时检查，布局的数据块名在装入时检查。装入之后检查同一单元内字节区间的重叠（即 `attach_unit` 的错误，前缀为该数据块条目），以及 `unit_ids` 中的单元号是否有数据块。
-- 装入为每个数据块建立一个 Ldata（结果的 `ldata`，按数据块名）；模拟器按条目顺序把它们挂到单元表，保存在 `blocks`。布局持有其 Ldata 的名称，模拟器不交还：一个布局的一个数据块名在进程中只能装入一次，不论之后构造成功还是失败。模拟器把登记域保存为 `scope`，把结果中的布局保存为 `layouts`。每个服务创建一个 `Modbus_Server`，共用同一单元表。
+- 构造：`descriptions` 是一个 `Description` 或其列表，由调用方用 layout-data 的 `desc_file` 或 `yaml` 编译；本包不读取文件，读取和编译的错误（已指明文件）交给这两个函数。原先给控制器用的对象入口取消：这样的对象用 `yaml(JSON.stringify(object))` 编译。列表项没有 `blocks` 列表（每个 `Description` 都有）是错误（`not a Description`），不再读取错误列表项的根键。从每个描述取 `blocks`（其条目保留本包的键 `unit_id`、`start`、`offset`）和 `Description` 原样保留的根键 `servers`，按列表顺序连接；有多个描述时，本包的出错信息带 `description #N` 前缀，与 layout-data 对列表项的称呼相同。
+- 登记域：构造方法接受登记域名称，缺省为 `modbus_emulator`（`DEFAULT_SCOPE`），登记域为 `get_scope(name) ?? create_scope(name)`；名称不是标识符时 `create_scope` 的错误被收集。描述原样交给该登记域的一次 `load` 调用，它注册布局（指纹与名称都相同的布局复用），并建立数据块的 Ldata，全部或全部不；其错误被收集。本包不另设表：布局的复用就是 layout-data 在一个登记域内的复用。
+- 校验收集全部违规项后一次抛出。本包的检查在装入之前，检查失败时登记域中什么都不装入：数据块（未知键、`unit_id` 范围、`start` 与 `offset` 为偶数）、服务（按协议检查未知键、协议、端口范围、`rtu` 的串口参数（取值与 es-modbus 接受的一致）、端口已被前面的服务使用、`unit_ids` 的格式）。数据块的 `name` 和 `layout` 由 layout-data 在编译描述时检查，布局的数据块名在装入时检查。装入之后检查同一单元内字节区间的重叠（即 `attach_unit` 的错误，前缀为该数据块条目），以及 `unit_ids` 中的单元号是否有数据块。`load` 之后的失败会交还数据块名（`delete_ldata`），使这些描述可以再次构造；已注册的布局留在登记域中，登记域无法注销它们。
+- `load` 为每个数据块建立一个 Ldata，模拟器按条目顺序把它们保存在 `blocks` 中，并挂到单元表。模拟器把登记域保存为 `scope`，把 `load` 结果中的 `layouts` 保存为 `layouts`。每个服务创建一个 `Modbus_Server`，共用同一单元表。
 - `start(options)` 并行启动全部服务，用 `Promise.allSettled` 等每个服务都有结果后再处理失败。它依赖 es-modbus 的这些行为：同一服务的 `start` / `stop` 在内部排队执行；`stop()` 等前面的 `start` 结束后才执行，且从不 reject；对没有启动过的服务调用 `stop()` 立即返回；对运行中的服务调用 `start()` 会先停再启。因此缺省模式下有失败就对全部服务调用 `stop()`，包括调用前已在运行的服务（对它们而言 `start()` 本就是重启），然后抛出；`partial` 模式下已启动的服务保持运行。两种模式抛出同样的 `AggregateError`，失败不会被忽略，只在“是否停掉其他服务”上不同。
 - 服务标签，即服务在描述中的位置（`servers[i]`，有多个描述时带 `description #N` 前缀）和地址（`modbus://host:port`、`rtu://host:port`、`serial://path`），作为 es-modbus 的 `name` 选项交给服务。此后由服务自己携带：`start()` 的错误和转发事件的监听器都读取 `server.name`，模拟器不再另存一份标签列表。
-- `stop()` 用 `Promise.all` 并行停止全部服务。
+- `stop()` 用 `Promise.all` 并行停止全部服务，然后把每个数据块的名称交还给其布局（`block.layout.delete_ldata(name)`）。Ldata 照常可用并留在 `blocks` 中，`start()` 会再次服务它们；它们的名称可供同一登记域中布局相同的另一个模拟器使用。
 - 事件：`Modbus_Emulator` 继承 `EventEmitter`。建立服务后订阅它的 es-modbus 事件，把每个 `<name>` 以 `server_<name>` 重新发出，载荷为 `{ server }`，再加上 `socket`、`error` 或 `frame` 参数；订阅 handler 的事件并原样重新发出。它对 `error` 的监听使服务的错误不会抛出，它自身也不发出 `error`，所以没有监听器的模拟器不会因事件而抛出异常。
 - 构造期发现的诊断信息发生在调用方能挂监听器之前，所以不发出事件，而是收入 `warnings`（字符串数组）。服务建好后，对协议不是 `tcp` 的服务（协议不是 `tcp` 时，es-modbus 把 unit 0 当作广播地址），检查它应答的单元（其 `unit_ids`，或单元表中的全部单元）是否含 unit 0 和 248..255，每个服务每类各给一条警告，标明服务。
 

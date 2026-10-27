@@ -3,52 +3,49 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { Modbus_Emulator, create_scope, desc_file, get_scope, yaml } from "../src/index.js";
+import { Modbus_Emulator, desc_file, get_scope } from "../src/index.js";
 
-// The package binds one scope per process, so the load is tested in a file of its own: a failed load
-// does not bind it, the successful load takes the item tables of an imported file and binds the package,
-// and the layouts are reused while the block names are held
+// The layouts of the descriptions loaded into a scope: a layout error loads nothing, a layout file is
+// loaded with the other descriptions, and layout-data reuses or refuses the layouts already in the scope
 const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-layout-"));
-const SERVERS = "servers:\n  - { protocol: tcp, port: 1502 }";
+const SERVERS = [{ protocol: "tcp", port: 1502 }];
+let file_seq = 0;
+// the file of each compiled description, which the errors of the load name
+const paths = new Map();
 
-test("an error of the load is collected, and does not bind the package", () => {
-	create_scope("first").load(yaml("layouts: [P]\nitem_tables:\n  P:\n    - { name: a, type: UInt, offset: 0 }"));
-	const other = yaml(`
-layouts: [P]
-item_tables:
-  P:
-    - { name: b, type: UInt, offset: 0 }
-blocks:
-  - { name: a, unit_id: 1, layout: P }
-  - { name: b, unit_id: 300, layout: P }
-${SERVERS}
-`);
+/** Writes a description file of a description given as data and compiles it, remembering its path. JSON is YAML. */
+const write_description = (description) => {
+	const path = join(dir, `description_${++file_seq}.yaml`);
+	writeFileSync(path, JSON.stringify(description));
+	const compiled = desc_file(path);
+	paths.set(compiled, path);
+	return compiled;
+};
 
-	// the checks of the package fail first, and nothing is loaded
-	assert.throws(() => new Modbus_Emulator(other, "first"), (e) => {
-		assert.deepEqual(e.errors, ["blocks[1]: unit_id must be an integer from 0 to 255"]);
-		return true;
-	});
-	assert.throws(() => new Modbus_Emulator(yaml(`
-layouts: [P]
-item_tables:
-  P:
-    - { name: b, type: UInt, offset: 0 }
-blocks:
-  - { name: a, unit_id: 1, layout: P }
-${SERVERS}
-`), "first"), (e) => e.errors.length === 1 && e.errors[0].includes("P"));
+test("a layout error is reported by the compilation, and nothing is loaded", () => {
+	assert.throws(() => new Modbus_Emulator(write_description({
+		layouts: ["BAD"],
+		item_tables: {
+			BAD: [
+				{ name: "a", type: "UInt", offset: 0, init_value: 0 },
+				{ name: "a", type: "UInt", offset: 16, init_value: 0 },
+			],
+		},
+		blocks: [{ name: "a", unit_id: 1, layout: "BAD" }],
+		servers: SERVERS,
+	}), "layout_bad"), (e) => e.errors.length > 0 && e.errors.every((m) => m.includes("duplicated name")));
+	assert.equal(get_scope("layout_bad"), undefined);
 });
 
 const file = join(dir, "emulator.yaml");
-
-test("a description takes the item tables of the files it imports", () => {
-	writeFileSync(join(dir, "pump.yaml"), `
+const layout_file = join(dir, "pump.yaml");
+writeFileSync(layout_file, `
+layouts: [PUMP]
 item_tables:
   PUMP:
     - { name: id, type: UInt, offset: 0, init_value: 7 }
 `);
-	writeFileSync(file, `
+writeFileSync(file, `
 imports: [pump.yaml]
 layouts: [PUMP, ONE]
 item_tables:
@@ -57,46 +54,45 @@ item_tables:
 blocks:
   - { name: pump, unit_id: 1, layout: PUMP }
   - { name: one, unit_id: 2, layout: ONE }
-${SERVERS}
+servers:
+  - { protocol: tcp, port: 1502 }
 `);
 
-	// the failed loads into scope first above did not bind the package
-	const emulator = new Modbus_Emulator(desc_file(file), "plant");
+test("a layout file is an item of the list, loaded with the other descriptions", () => {
+	const emulator = new Modbus_Emulator([desc_file(layout_file), desc_file(file)], "plant");
+
 	assert.equal(emulator.block("pump").id, 7);
 	assert.equal(emulator.block("one").a, 5);
 	assert.equal(emulator.scope, get_scope("plant"));
 	assert.deepEqual(Object.keys(emulator.layouts).sort(), ["ONE", "PUMP"]);
+	assert.equal(emulator.layouts.PUMP, emulator.scope.get_layout("PUMP"));
 });
 
-test("a description is constructed once: its block names are held by the layouts", () => {
-	assert.throws(() => new Modbus_Emulator(desc_file(file), "plant"), (e) => {
-		assert.equal(e.errors.length, 2, JSON.stringify(e.errors));
+test("another layout of a name in the scope is an error", () => {
+	const other = write_description({
+		layouts: ["PUMP"],
+		item_tables: { PUMP: [{ name: "id", type: "UInt", offset: 0, init_value: 8 }] },
+		blocks: [{ name: "other", unit_id: 1, layout: "PUMP" }],
+		servers: SERVERS,
+	});
+	assert.throws(() => new Modbus_Emulator(other, "plant"), (e) => {
+		assert.deepEqual(e.errors, [`${paths.get(other)}: another layout of a different structure is already named plant.PUMP`]);
 		return true;
 	});
 });
 
-test("the layouts are reused by descriptions of other block names, any number of times", () => {
-	const description = (name) => yaml(`
-layouts: [ONE]
-item_tables:
-  ONE:
-    - { name: a, type: UInt, offset: 0, init_value: 5 }
-blocks:
-  - { name: ${name}, unit_id: 2, layout: ONE }
-${SERVERS}
-`);
-	const first = new Modbus_Emulator(description("one_1"), "plant");
-	const second = new Modbus_Emulator(description("one_2"));
+test("a construction that fails after loading gives the block names back", () => {
+	const description = {
+		layouts: ["ONE"],
+		item_tables: { ONE: [{ name: "a", type: "UInt", offset: 0, init_value: 5 }] },
+		blocks: [{ name: "x", unit_id: 1, layout: "ONE" }, { name: "y", unit_id: 1, layout: "ONE" }],
+		servers: SERVERS,
+	};
+	assert.throws(() => new Modbus_Emulator(write_description(description), "overlap"),
+		(e) => e.errors.length === 1 && e.errors[0].startsWith("blocks[1]: unit 1: "));
+	assert.throws(() => get_scope("overlap").get_layout("ONE").get_ldata("x"), /unknown ldata overlap\.ONE\.x/);
 
-	assert.equal(first.block("one_1").layout, get_scope("plant").get_layout("ONE"));
-	assert.equal(second.block("one_2").layout, first.block("one_1").layout);
-	assert.equal(second.scope, get_scope("plant"));
-});
-
-test("once bound, another scope is an error, even an existing one", () => {
-	const description = yaml(`layouts: [P]\nitem_tables:\n  P:\n    - { name: a, type: UInt, offset: 0 }\nblocks:\n  - { name: x, unit_id: 1, layout: P }\n${SERVERS}`);
-	assert.throws(() => new Modbus_Emulator(description, "first"), (e) => {
-		assert.deepEqual(e.errors, ["scope first: the package uses scope plant"]);
-		return true;
-	});
+	description.blocks[1].start = 2;
+	const emulator = new Modbus_Emulator(write_description(description), "overlap");
+	assert.deepEqual([...emulator.blocks.keys()], ["x", "y"]);
 });
