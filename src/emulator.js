@@ -2,16 +2,29 @@ import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parseDocument } from "yaml";
-import { Ldata, get_layout, register_layout } from "layout-data";
+import { create_scope, get_scope, yaml_file } from "layout-data";
 import { Unit_Map, create_handler } from "./unit_map.js";
 import { create_tcp_server, create_rtu_server } from "./server.js";
 
-/** Whether a layout of the name is registered in layout-data. */
-function is_registered(name) {
+/**
+ * The layout-data scope of the package: one per process, bound by the first emulator that gets its scope
+ * (doc/spec.md 4).
+ *
+ * @type {import('layout-data').Layout_Scope | undefined}
+ */
+let package_scope;
+
+/** A scope name made from the time in UTC, for a description without scope: `s` and the year to the millisecond. */
+function time_scope_name() {
+	return `s${new Date().toISOString().replace(/\D/g, "")}`;
+}
+
+/** The registered layout of the name in the scope, or undefined. */
+function find_layout(scope, name) {
 	try {
-		return typeof name === "string" && get_layout(name) !== undefined;
+		return typeof name === "string" ? scope.get_layout(name) : undefined;
 	} catch {
-		return false;
+		return undefined;
 	}
 }
 
@@ -76,9 +89,11 @@ export class Modbus_Emulator extends EventEmitter {
 	unit_map = new Unit_Map();
 	/** @type {Object} The handler shared by all the servers. */
 	handler;
-	/** @type {Map<string, Ldata>} The data blocks by block name. */
+	/** @type {Map<string, import('layout-data').Ldata>} The data blocks by block name. */
 	blocks = new Map();
-	/** @type {Object<string, Object>} The compiled layouts by name. */
+	/** @type {import('layout-data').Layout_Scope} The layout scope of the blocks, named by the description. */
+	scope;
+	/** @type {Object<string, Object>} The layouts this emulator registered, by name; empty without layouts. */
 	layouts;
 	/** @type {import('es-modbus').Modbus_Server[]} Named by their labels, e.g. `servers[1] (modbus://0.0.0.0:503)`. */
 	servers = [];
@@ -87,7 +102,8 @@ export class Modbus_Emulator extends EventEmitter {
 
 	/**
 	 * @param {string|string[]} source - The path of an emulator description file (YAML), or a list of paths: the
-	 *     `blocks` and `servers` of the files are joined in order, and their layouts are registered together.
+	 *     `blocks` and `servers` of the files are joined in order, and their layouts are registered together in
+	 *     the scope they name.
 	 *     Not public: an object of the same structure is also accepted in place of a path, for the controller that
 	 *     assembles it; a relative `layouts_file` then is relative to the current directory. `layouts_file` names
 	 *     a layout file, instead of giving the layouts in the description.
@@ -108,6 +124,9 @@ export class Modbus_Emulator extends EventEmitter {
 		const block_entries = [];
 		const server_entries = [];
 		const layout_sources = [];
+		// the scope name and the label of the first source that gives it
+		let scope_name;
+		let scope_label;
 		for (const [index, item] of sources.entries()) {
 			const prefix = prefixes[index];
 			let root = item;
@@ -130,7 +149,12 @@ export class Modbus_Emulator extends EventEmitter {
 				errors.push(`${prefix}the root must be a mapping`);
 				continue;
 			}
-			const { blocks, servers, layouts_file, ...layout_root } = root;
+			const { scope, blocks, servers, layouts_file, layouts, item_tables } = root;
+			if (scope !== undefined) {
+				if (typeof scope !== "string") errors.push(`${prefix}scope must be a string`);
+				else if (scope_name === undefined) [scope_name, scope_label] = [scope, labels[index]];
+				else if (scope !== scope_name) errors.push(`${prefix}scope ${scope} differs from scope ${scope_name} of ${scope_label}`);
+			}
 			for (const [key, list, entries] of [["blocks", blocks, block_entries], ["servers", servers, server_entries]]) {
 				if (list === undefined) continue;
 				if (!Array.isArray(list)) errors.push(`${prefix}the root key \`${key}\` must be a list`);
@@ -138,25 +162,24 @@ export class Modbus_Emulator extends EventEmitter {
 			}
 			if (layouts_file !== undefined) {
 				if (typeof layouts_file !== "string") errors.push(`${prefix}layouts_file must be a path`);
-				else layout_sources.push(resolve(typeof item === "string" ? dirname(item) : ".", layouts_file));
+				else {
+					try {
+						layout_sources.push(yaml_file(resolve(typeof item === "string" ? dirname(item) : ".", layouts_file)));
+					} catch (e) {
+						errors.push(...(e.errors ?? [e.message]).map((message) => prefix + message));
+					}
+				}
 			}
-			if (Object.keys(layout_root).length > 0) layout_sources.push(layout_root);
+			// the root is a description as it is: layout-data reads only layouts and item_tables
+			if (layouts !== undefined || item_tables !== undefined) layout_sources.push(root);
 		}
 		if (errors.length > 0) fail();
 
-		let compiled = { layouts: {} };
-		let layouts_failed = false;
-		try {
-			// without sources the blocks use the layouts that are already registered
-			if (layout_sources.length > 0) compiled = register_layout(layout_sources);
-		} catch (e) {
-			errors.push(...(e.errors ?? [e.message]));
-			layouts_failed = true;
-		}
-		this.layouts = compiled.layouts;
+		const compiled = this.#get_scope(scope_name, layout_sources, errors);
+		this.layouts = compiled?.layouts ?? {};
 
 		const checked_servers = this.#read_servers(server_entries, errors);
-		this.#read_blocks(block_entries, errors, layouts_failed);
+		this.#read_blocks(block_entries, errors);
 		this.#check_server_units(checked_servers, errors);
 		if (errors.length > 0) fail();
 
@@ -173,6 +196,35 @@ export class Modbus_Emulator extends EventEmitter {
 		}
 	}
 
+	/**
+	 * Gets the scope of the description into `scope`, registering the layout descriptions in it, and binds the
+	 * package to it. Leaves `scope` unset on an error: no layout is known then.
+	 *
+	 * @return {import('layout-data').Registered_Layouts | undefined} The registration, when there was one.
+	 */
+	#get_scope(name = package_scope?.name ?? time_scope_name(), layout_sources, errors) {
+		if (package_scope !== undefined && package_scope.name !== name) {
+			errors.push(`scope ${name}: the package uses scope ${package_scope.name}`);
+			return undefined;
+		}
+		let compiled;
+		if (layout_sources.length > 0) {
+			try {
+				const scope = get_scope(name) ?? create_scope(name);
+				compiled = scope.register_layout(layout_sources);
+				this.scope = scope;
+			} catch (e) {
+				errors.push(...(e.errors ?? [e.message]));
+			}
+		} else {
+			// without layouts the blocks use the layouts already registered in the scope
+			this.scope = get_scope(name);
+			if (this.scope === undefined) errors.push(`unknown scope ${name}`);
+		}
+		package_scope ??= this.scope;
+		return compiled;
+	}
+
 	/** Warns of the broadcast and reserved units a server on a serial bus answers (es-modbus: protocol not tcp). */
 	#check_serial_units(server, unit_ids) {
 		if (server.protocol === "tcp") return;
@@ -186,10 +238,10 @@ export class Modbus_Emulator extends EventEmitter {
 	}
 
 	/**
-	 * @param {boolean} layouts_failed - The layout registration failed, so no layout is registered: an unknown
-	 *     layout is not reported, as every block would repeat it.
+	 * Without a scope no layout is known: an unknown layout is then not reported, as every block would repeat
+	 * the error of the scope.
 	 */
-	#read_blocks(entries, errors, layouts_failed) {
+	#read_blocks(entries, errors) {
 		if (entries.length === 0) {
 			errors.push("the root key `blocks` must be a non-empty list");
 			return;
@@ -218,11 +270,13 @@ export class Modbus_Emulator extends EventEmitter {
 				errors.push(`${where}: duplicated block name ${name}`);
 				continue;
 			}
-			if (!is_registered(layout)) {
-				if (!layouts_failed) errors.push(`${where}: unknown layout ${layout}`);
+			if (this.scope === undefined) continue;
+			const found = find_layout(this.scope, layout);
+			if (found === undefined) {
+				errors.push(`${where}: unknown layout ${this.scope.name}.${layout}`);
 				continue;
 			}
-			const block = new Ldata(layout, name);
+			const block = found.create_ldata(name);
 			this.blocks.set(name, block);
 			try {
 				this.unit_map.attach_unit(unit_id, block, start, offset);
@@ -310,7 +364,7 @@ export class Modbus_Emulator extends EventEmitter {
 	 * Gets a data block by name.
 	 *
 	 * @param {string} name - The block name.
-	 * @return {Ldata|undefined}
+	 * @return {import('layout-data').Ldata|undefined}
 	 */
 	block(name) {
 		return this.blocks.get(name);

@@ -1,12 +1,12 @@
 import type { Buffer } from "node:buffer";
 import type { EventEmitter } from "node:events";
 import type { Socket } from "node:net";
-import type { Ldata, Layout } from "layout-data";
+import type { Ldata, Layout, Layout_Scope } from "layout-data";
 
-export { Ldata, Ltag, register_layout, get_layout, io_index_table, render_types } from "layout-data";
+export { Ldata, Ltag, create_scope, get_scope, yaml, yaml_file } from "layout-data";
 export type {
-	Layout, Layout_Tag, Layout_Item, Tag_Item, Include_Item, Layout_Description,
-	Layout_Source, Registered_Layouts, Endian, Tag_Type,
+	Layout, Layout_Scope, Layout_Tag, Layout_Item, Tag_Item, Include_Item, Layout_Description,
+	Registered_Layouts, Endian, Tag_Type,
 } from "layout-data";
 
 /** A Modbus slave service (the server of es-modbus, a dependency of this package). */
@@ -137,6 +137,9 @@ export class Modbus_Emulator extends EventEmitter {
 	readonly unit_map: Unit_Map;
 	readonly handler: Modbus_Handler;
 	readonly blocks: ReadonlyMap<string, Ldata>;
+	/** The layout scope of the blocks, named by the description; the one scope of the package. */
+	readonly scope: Layout_Scope;
+	/** The layouts this emulator registered, by name; empty when the description has no layouts. */
 	readonly layouts: Readonly<Record<string, Layout>>;
 	/** Item `i` is the service entry `i` of the description, named by its label. */
 	readonly servers: readonly Modbus_Server[];

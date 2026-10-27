@@ -6,14 +6,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
-import { Modbus_Emulator, Ldata, Ltag, register_layout, get_layout, io_index_table, render_types } from "../src/index.js";
+import { Modbus_Emulator, Ldata, Ltag, create_scope, get_scope, yaml_file } from "../src/index.js";
 import { HOST, hold_port, listening_port } from "./helpers.js";
 
 const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-"));
 let file_seq = 0;
 
 const LAYOUTS = `
-layouts:
+layouts: [PUMP, SETTING]
+item_tables:
   PUMP:
     - { name: id, type: UInt, offset: 0, init_value: 7 }
     - name: status
@@ -35,14 +36,15 @@ function write_file(text) {
 	return file;
 }
 
-// register_layout can succeed only once per process: every layout of this file is registered here,
-// and the descriptions below only name them (layout registration is tested in layout_test.js)
-register_layout([
-	write_file(LAYOUTS),
-	{ layouts: { ONE: [{ name: "a", type: "UInt", offset: 0, init_value: 5 }] } },
+// The package uses one scope per process: every layout of this file is registered here, in the scope
+// the caller made, and the descriptions below only name them (layout registration is tested in layout_test.js)
+const SCOPE = "emulator_test";
+create_scope(SCOPE).register_layout([
+	yaml_file(write_file(LAYOUTS)),
+	{ layouts: ["ONE"], item_tables: { ONE: [{ name: "a", type: "UInt", offset: 0, init_value: 5 }] } },
 ]);
 
-const make = (blocks_and_servers, options) => new Modbus_Emulator(write_file(blocks_and_servers), options);
+const make = (blocks_and_servers, options) => new Modbus_Emulator(write_file(`scope: ${SCOPE}\n${blocks_and_servers}`), options);
 
 const errors_of = (blocks_and_servers) => {
 	try {
@@ -102,7 +104,7 @@ servers:
 		assert.equal(errors.length, 7, JSON.stringify(errors));
 		assert.match(errors[0], /servers\[0\]: protocol must be one of/);
 		assert.match(errors.join("\n"), /blocks\[0\]: unit_id/);
-		assert.match(errors.join("\n"), /blocks\[1\]: unknown layout NONE/);
+		assert.match(errors.join("\n"), /blocks\[1\]: unknown layout emulator_test\.NONE/);
 		assert.match(errors.join("\n"), /blocks\[2\]: start must be an even/);
 		assert.match(errors.join("\n"), /blocks\[4\]: duplicated block name d/);
 	});
@@ -289,11 +291,73 @@ servers:
 			&& e.errors[0].startsWith(`${missing}: cannot read the file: ENOENT`));
 	});
 
+	test("a layouts_file that cannot be read or parsed is reported in errors, before any registration", () => {
+		const bad = write_file("layouts: [PUMP\n");
+		const rest = "blocks:\n  - { name: a, unit_id: 1, layout: PUMP }\nservers:\n  - { protocol: tcp, port: 1502 }\n";
+		assert.throws(() => make(`layouts_file: missing_layouts.yaml\n${rest}`), (e) => e.errors.length === 1
+			&& e.errors[0].startsWith("ENOENT"));
+		assert.throws(() => make(`layouts_file: ${bad}\n${rest}`), (e) => e.errors.length > 0
+			&& e.errors.every((m) => m.startsWith(`${bad}: `)));
+	});
+
 	test("blocks and servers are required", () => {
-		assert.deepEqual(errors_of("{}"), [
+		assert.deepEqual(errors_of(""), [
 			"the root key `servers` must be a non-empty list",
 			"the root key `blocks` must be a non-empty list",
 		]);
+	});
+});
+
+describe("Modbus_Emulator scope", () => {
+	const BLOCKS = [{ name: "one", unit_id: 4, layout: "ONE" }];
+	const SERVERS = [{ protocol: "tcp", port: 1502 }];
+
+	test("the blocks are created from the layouts of the scope the description names", () => {
+		const emulator = make(`
+blocks:
+  - { name: pump, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp, port: 1502 }
+`);
+
+		assert.equal(emulator.scope, get_scope(SCOPE));
+		assert.equal(emulator.block("pump").layout, emulator.scope.get_layout("PUMP"));
+		assert.deepEqual(emulator.layouts, {});
+	});
+
+	test("root keys other than layouts and item_tables carry no layouts and are not used", () => {
+		const emulator = make(`
+x-common: &pump PUMP
+blocks:
+  - { name: pump, unit_id: 1, layout: *pump }
+servers:
+  - { protocol: tcp, port: 1502 }
+`);
+
+		assert.equal(emulator.block("pump").layout, emulator.scope.get_layout("PUMP"));
+		assert.deepEqual(emulator.layouts, {});
+	});
+
+	test("a description without scope takes the scope the package is bound to", () => {
+		const emulator = new Modbus_Emulator({ blocks: BLOCKS, servers: SERVERS });
+
+		assert.equal(emulator.scope, get_scope(SCOPE));
+		assert.equal(emulator.block("one").a, 5);
+	});
+
+	test("the package uses one scope: another name is an error", () => {
+		assert.throws(
+			() => new Modbus_Emulator({ scope: "other", blocks: BLOCKS, servers: SERVERS }),
+			(e) => { assert.deepEqual(e.errors, [`scope other: the package uses scope ${SCOPE}`]); return true; },
+		);
+		assert.equal(get_scope("other"), undefined);
+	});
+
+	test("a scope that is not a string is an error", () => {
+		assert.throws(
+			() => new Modbus_Emulator({ scope: 1, blocks: BLOCKS, servers: SERVERS }),
+			(e) => { assert.deepEqual(e.errors, ["scope must be a string"]); return true; },
+		);
 	});
 });
 
@@ -302,6 +366,7 @@ describe("Modbus_Emulator object description", () => {
 
 	test("takes the description as an object", () => {
 		const emulator = new Modbus_Emulator({
+			scope: SCOPE,
 			blocks: [{ name: "one", unit_id: 4, layout: "ONE" }],
 			servers: SERVERS,
 		});
@@ -528,7 +593,7 @@ servers:
 });
 
 describe("layout-data forwarded by the package", () => {
-	test("the forwarded Ldata is the class of the blocks, and the functions are the ones in use", () => {
+	test("the forwarded Ldata is the class of the blocks, and the scopes are the ones in use", () => {
 		const emulator = make(`
 blocks:
   - { name: pump, unit_id: 1, layout: PUMP }
@@ -537,10 +602,8 @@ servers:
 `);
 
 		assert.ok(emulator.block("pump") instanceof Ldata);
-		assert.equal(get_layout("PUMP"), emulator.block("pump").layout);
-		assert.equal(typeof register_layout, "function");
-		assert.equal(typeof io_index_table, "function");
-		assert.equal(typeof render_types, "function");
+		assert.equal(get_scope(SCOPE).get_layout("PUMP"), emulator.block("pump").layout);
+		assert.equal(typeof create_scope, "function");
 		assert.equal(typeof Ltag, "function");
 	});
 });

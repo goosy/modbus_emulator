@@ -1,5 +1,6 @@
 # An example emulator description (doc/spec.md 5).
-layouts:
+layouts: [PUMP]
+item_tables:
   PUMP:
     - { name: id, type: UInt, offset: 0, init_value: 1 }
     - name: status

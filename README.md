@@ -23,7 +23,10 @@ Requires Node.js >= 20.11.
 
 ```yaml
 # emulator.yaml
-layouts:
+scope: plant # the layout-data scope of the layouts
+
+layouts: [PUMP]
+item_tables:
   PUMP:
     - { name: id, type: UInt, offset: 0, init_value: 1 }
     - { name: pressure, type: Real, offset: 32, init_value: 1.5 }
@@ -49,21 +52,24 @@ await emulator.stop();
 
 An invalid description file throws an `Error`; its `errors` property lists all violations.
 
+The layouts live in a [layout-data scope](https://github.com/goosy/layout-data/blob/main/doc/spec-layout.md), named by the root key `scope` (when it is omitted: the scope already in use, or else a name made from the UTC time, such as `s20261027004920133`), apart from the layouts of your code and of other libraries. The package uses one scope per process: the first emulator binds it, and a description that names another scope is an error. A scope registers its layouts once, so a description with layouts is constructed once per process. To run several emulators, or to rebuild one, register the layouts once and give descriptions without layouts that only name the scope and its layouts: those can be constructed any number of times.
+
 ### Without a description file
 
 ```js
-import { Unit_Map, Ldata, register_layout, create_tcp_server } from "modbus-emulator";
+import { Unit_Map, create_scope, create_tcp_server } from "modbus-emulator";
 
-// once per process
-register_layout({
-	layouts: {
+const scope = create_scope("plant");
+scope.register_layout({ // once per scope
+	layouts: ["PUMP"],
+	item_tables: {
 		PUMP: [
 			{ name: "id", type: "UInt", offset: 0, init_value: 1 },
 			{ name: "pressure", type: "Real", offset: 32, init_value: 1.5 },
 		],
 	},
 });
-const pump = new Ldata("PUMP", "pump_1");
+const pump = scope.get_layout("PUMP").create_ldata("pump_1");
 
 const unit_map = new Unit_Map();
 unit_map.attach_unit(1, pump, 0, 0);
@@ -72,7 +78,9 @@ const server = create_tcp_server(unit_map, { port: 1502 });
 await server.start();
 ```
 
-Take `Ldata` and `register_layout` from this package rather than from layout-data, so that there is one copy of layout-data in the process.
+`register_layout` takes description objects: read a YAML description file with ``yaml_file`pump.yaml` `` or parse YAML text with ``yaml`...` ``.
+
+Take `Ldata`, `create_scope`, `get_scope`, `yaml` and `yaml_file` from this package rather than from layout-data, so that there is one copy of layout-data in the process: two copies share no scope.
 
 `create_rtu_server(path, unit_map, options)` creates an RTU slave on a serial port. `create_handler(unit_map)` returns the es-modbus server handler for fully custom assembly. The factories add no listener: listen to `error` of each server, which throws when it has no listener.
 

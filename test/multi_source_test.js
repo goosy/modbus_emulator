@@ -5,23 +5,26 @@ import { join } from "node:path";
 import test from "node:test";
 import { Modbus_Emulator } from "../src/index.js";
 
-// register_layout can succeed only once per process, so this is a file of its own:
-// several files are read as one description
+// The package binds one scope per process, so this is a file of its own:
+// several files are read as one description, whose scope may be given in any of them
 const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-sources-"));
 
 test("several files are joined in order and their layouts are registered together", () => {
 	writeFileSync(join(dir, "layouts.yaml"), `
-layouts:
+layouts: [PUMP]
+item_tables:
   PUMP:
     - { name: id, type: UInt, offset: 0, init_value: 7 }
 `);
 	writeFileSync(join(dir, "blocks.yaml"), `
+scope: sources
 layouts_file: layouts.yaml
 blocks:
   - { name: pump_1, unit_id: 1, layout: PUMP }
 `);
 	writeFileSync(join(dir, "servers.yaml"), `
-layouts:
+layouts: [ONE]
+item_tables:
   ONE:
     - { name: a, type: UInt, offset: 0, init_value: 5 }
 blocks:
@@ -37,6 +40,7 @@ servers:
 	assert.equal(emulator.servers.length, 1);
 	assert.deepEqual(Object.keys(emulator.layouts).sort(), ["ONE", "PUMP"]);
 	assert.equal("fragments" in emulator, false);
+	assert.equal(emulator.scope.name, "sources");
 });
 
 test("an error names its file when there are several", () => {
@@ -47,5 +51,18 @@ blocks:
 	assert.throws(
 		() => new Modbus_Emulator([join(dir, "servers.yaml"), join(dir, "bad.yaml")]),
 		(e) => e.errors.some((m) => m === `${join(dir, "bad.yaml")}: blocks[1]: unit_id must be an integer from 0 to 255`),
+	);
+});
+
+test("the files that give a scope must give the same name", () => {
+	writeFileSync(join(dir, "other.yaml"), `
+scope: other
+`);
+	assert.throws(
+		() => new Modbus_Emulator([join(dir, "blocks.yaml"), join(dir, "servers.yaml"), join(dir, "other.yaml")]),
+		(e) => {
+			assert.deepEqual(e.errors, [`${join(dir, "other.yaml")}: scope other differs from scope sources of ${join(dir, "blocks.yaml")}`]);
+			return true;
+		},
 	);
 });

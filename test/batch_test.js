@@ -2,16 +2,18 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
-import { Ldata, Unit_Map, create_handler, create_tcp_server, register_layout } from "../src/index.js";
+import { Unit_Map, create_handler, create_tcp_server, create_scope } from "../src/index.js";
 import { HOST, listening_port } from "./helpers.js";
 
 // The batch methods of the handler over real Ldata, whose transactions, events and `access`
-// are what is tested. register_layout can succeed only once per process, so this is a file of its own.
+// are what is tested.
 const UNIT = 1;
 
 // 8 bytes: registers 0..3 of a block; its Bools are coils 48, 49 and 63 of the block
-register_layout({
-	layouts: {
+const scope = create_scope("batch_test");
+scope.register_layout({
+	layouts: ["BLOCK"],
+	item_tables: {
 		BLOCK: [
 			{ name: "r", type: "Real", offset: 0, init_value: 1.5 },
 			{ name: "n", type: "UInt", offset: 32, init_value: 7 },
@@ -27,8 +29,9 @@ register_layout({
  * (coils 64..127). `log` records their events in order.
  */
 function make_unit() {
-	const a = new Ldata("BLOCK", "a");
-	const b = new Ldata("BLOCK", "b");
+	const layout = scope.get_layout("BLOCK");
+	const a = layout.create_ldata("a");
+	const b = layout.create_ldata("b");
 	const unit_map = new Unit_Map();
 	unit_map.attach_unit(UNIT, a, 0);
 	unit_map.attach_unit(UNIT, b, 8);
