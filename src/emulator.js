@@ -1,8 +1,7 @@
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { parseDocument } from "yaml";
-import { create_scope, get_scope, yaml_file } from "layout-data";
+import { create_scope, get_scope } from "layout-data";
 import { Unit_Map, create_handler } from "./unit_map.js";
 import { create_tcp_server, create_rtu_server } from "./server.js";
 
@@ -101,33 +100,32 @@ export class Modbus_Emulator extends EventEmitter {
 	warnings = [];
 
 	/**
-	 * @param {string|string[]} source - The path of an emulator description file (YAML), or a list of paths: the
+	 * @param {string|string[]} descriptions - The path of an emulator description file (YAML), or a list of them: the
 	 *     `blocks` and `servers` of the files are joined in order, and their layouts are registered together in
-	 *     the scope they name.
+	 *     the scope they name. A layout file is an item of the list like the others.
 	 *     Not public: an object of the same structure is also accepted in place of a path, for the controller that
-	 *     assembles it; a relative `layouts_file` then is relative to the current directory. `layouts_file` names
-	 *     a layout file, instead of giving the layouts in the description.
+	 *     assembles it.
 	 * @throws {Error} With `errors`, every violation found, when the file is not valid.
 	 */
-	constructor(source) {
+	constructor(descriptions) {
 		super();
-		const sources = Array.isArray(source) ? source : [source];
-		const labels = sources.map((item) => (typeof item === "string" ? item : "emulator description"));
+		const items = Array.isArray(descriptions) ? descriptions : [descriptions];
+		const labels = items.map((item) => (typeof item === "string" ? item : "emulator description"));
 		const errors = [];
 		const fail = () => {
 			const error = new Error(`invalid emulator file ${labels.join(", ")}:\n${errors.join("\n")}`);
 			error.errors = errors;
 			throw error;
 		};
-		// with several sources, a violation names its source
-		const prefixes = labels.map((label) => (sources.length > 1 ? `${label}: ` : ""));
+		// with several descriptions, a violation names its description
+		const prefixes = labels.map((label) => (items.length > 1 ? `${label}: ` : ""));
 		const block_entries = [];
 		const server_entries = [];
-		const layout_sources = [];
-		// the scope name and the label of the first source that gives it
+		const layout_descriptions = [];
+		// the scope name and the label of the first description that gives it
 		let scope_name;
 		let scope_label;
-		for (const [index, item] of sources.entries()) {
+		for (const [index, item] of items.entries()) {
 			const prefix = prefixes[index];
 			let root = item;
 			if (typeof item === "string") {
@@ -149,7 +147,7 @@ export class Modbus_Emulator extends EventEmitter {
 				errors.push(`${prefix}the root must be a mapping`);
 				continue;
 			}
-			const { scope, blocks, servers, layouts_file, layouts, item_tables } = root;
+			const { scope, blocks, servers, layouts, item_tables } = root;
 			if (scope !== undefined) {
 				if (typeof scope !== "string") errors.push(`${prefix}scope must be a string`);
 				else if (scope_name === undefined) [scope_name, scope_label] = [scope, labels[index]];
@@ -160,22 +158,12 @@ export class Modbus_Emulator extends EventEmitter {
 				if (!Array.isArray(list)) errors.push(`${prefix}the root key \`${key}\` must be a list`);
 				else for (const entry of list) entries.push({ entry, where: `${prefix}${key}[${entries.length}]` });
 			}
-			if (layouts_file !== undefined) {
-				if (typeof layouts_file !== "string") errors.push(`${prefix}layouts_file must be a path`);
-				else {
-					try {
-						layout_sources.push(yaml_file(resolve(typeof item === "string" ? dirname(item) : ".", layouts_file)));
-					} catch (e) {
-						errors.push(...(e.errors ?? [e.message]).map((message) => prefix + message));
-					}
-				}
-			}
 			// the root is a description as it is: layout-data reads only layouts and item_tables
-			if (layouts !== undefined || item_tables !== undefined) layout_sources.push(root);
+			if (layouts !== undefined || item_tables !== undefined) layout_descriptions.push(root);
 		}
 		if (errors.length > 0) fail();
 
-		const compiled = this.#get_scope(scope_name, layout_sources, errors);
+		const compiled = this.#get_scope(scope_name, layout_descriptions, errors);
 		this.layouts = compiled?.layouts ?? {};
 
 		const checked_servers = this.#read_servers(server_entries, errors);
@@ -202,16 +190,16 @@ export class Modbus_Emulator extends EventEmitter {
 	 *
 	 * @return {import('layout-data').Registered_Layouts | undefined} The registration, when there was one.
 	 */
-	#get_scope(name = package_scope?.name ?? time_scope_name(), layout_sources, errors) {
+	#get_scope(name = package_scope?.name ?? time_scope_name(), layout_descriptions, errors) {
 		if (package_scope !== undefined && package_scope.name !== name) {
 			errors.push(`scope ${name}: the package uses scope ${package_scope.name}`);
 			return undefined;
 		}
 		let compiled;
-		if (layout_sources.length > 0) {
+		if (layout_descriptions.length > 0) {
 			try {
 				const scope = get_scope(name) ?? create_scope(name);
-				compiled = scope.register_layout(layout_sources);
+				compiled = scope.register_layout(layout_descriptions);
 				this.scope = scope;
 			} catch (e) {
 				errors.push(...(e.errors ?? [e.message]));

@@ -291,15 +291,6 @@ servers:
 			&& e.errors[0].startsWith(`${missing}: cannot read the file: ENOENT`));
 	});
 
-	test("a layouts_file that cannot be read or parsed is reported in errors, before any registration", () => {
-		const bad = write_file("layouts: [PUMP\n");
-		const rest = "blocks:\n  - { name: a, unit_id: 1, layout: PUMP }\nservers:\n  - { protocol: tcp, port: 1502 }\n";
-		assert.throws(() => make(`layouts_file: missing_layouts.yaml\n${rest}`), (e) => e.errors.length === 1
-			&& e.errors[0].startsWith("ENOENT"));
-		assert.throws(() => make(`layouts_file: ${bad}\n${rest}`), (e) => e.errors.length > 0
-			&& e.errors.every((m) => m.startsWith(`${bad}: `)));
-	});
-
 	test("blocks and servers are required", () => {
 		assert.deepEqual(errors_of(""), [
 			"the root key `servers` must be a non-empty list",

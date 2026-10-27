@@ -40,9 +40,10 @@ test("layout errors are reported with the others, without an unknown layout per 
 });
 
 const file = join(dir, "emulator.yaml");
+const layout_file = join(dir, "pump.yaml");
 
-test("layouts_file is relative to the description file and may be combined with layouts", () => {
-	writeFileSync(join(dir, "pump.yaml"), `
+test("a layout file is an item of the list, registered with the layouts of the other files", () => {
+	writeFileSync(layout_file, `
 layouts: [PUMP]
 item_tables:
   PUMP:
@@ -50,7 +51,6 @@ item_tables:
 `);
 	writeFileSync(file, `
 scope: plant
-layouts_file: pump.yaml
 layouts: [ONE]
 item_tables:
   ONE:
@@ -63,7 +63,7 @@ servers:
 `);
 
 	// the failed registration of scope first above did not bind the package
-	const emulator = new Modbus_Emulator(file);
+	const emulator = new Modbus_Emulator([layout_file, file]);
 	assert.equal(emulator.block("pump").id, 7);
 	assert.equal(emulator.block("one").a, 5);
 	assert.equal(emulator.scope, get_scope("plant"));
@@ -71,7 +71,7 @@ servers:
 });
 
 test("a description with layouts is constructed once: the scope is registered", () => {
-	assert.throws(() => new Modbus_Emulator(file), (e) => {
+	assert.throws(() => new Modbus_Emulator([layout_file, file]), (e) => {
 		assert.deepEqual(e.errors, ["register_layout can be called only once in scope plant"]);
 		return true;
 	});

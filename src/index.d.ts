@@ -133,7 +133,7 @@ export type Server_Event_Name =
  * It never emits `error`.
  */
 export class Modbus_Emulator extends EventEmitter {
-	constructor(source: string | string[]);
+	constructor(descriptions: string | string[]);
 	readonly unit_map: Unit_Map;
 	readonly handler: Modbus_Handler;
 	readonly blocks: ReadonlyMap<string, Ldata>;
