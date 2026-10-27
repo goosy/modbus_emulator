@@ -1,7 +1,5 @@
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
-import { parseDocument } from "yaml";
-import { create_scope, get_scope } from "layout-data";
+import { create_scope, get_scope, yaml_file } from "layout-data";
 import { Unit_Map, create_handler } from "./unit_map.js";
 import { create_tcp_server, create_rtu_server } from "./server.js";
 
@@ -16,15 +14,6 @@ let package_scope;
 /** A scope name made from the time in UTC, for a description without scope: `s` and the year to the millisecond. */
 function time_scope_name() {
 	return `s${new Date().toISOString().replace(/\D/g, "")}`;
-}
-
-/** The registered layout of the name in the scope, or undefined. */
-function find_layout(scope, name) {
-	try {
-		return typeof name === "string" ? scope.get_layout(name) : undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 // the serial settings es-modbus accepts
@@ -129,19 +118,13 @@ export class Modbus_Emulator extends EventEmitter {
 			const prefix = prefixes[index];
 			let root = item;
 			if (typeof item === "string") {
-				let text;
+				// the object remembers its file, which the layout errors name; the errors of yaml_file name it too
 				try {
-					text = readFileSync(item, "utf8");
+					root = yaml_file(item);
 				} catch (e) {
-					errors.push(`${prefix}cannot read the file: ${e.message}`);
+					errors.push(...e.errors);
 					continue;
 				}
-				const doc = parseDocument(text, { version: "1.2" });
-				if (doc.errors.length > 0) {
-					errors.push(...doc.errors.map((e) => prefix + e.message));
-					continue;
-				}
-				root = doc.toJS();
 			}
 			if (root === null || typeof root !== "object" || Array.isArray(root)) {
 				errors.push(`${prefix}the root must be a mapping`);
@@ -259,9 +242,11 @@ export class Modbus_Emulator extends EventEmitter {
 				continue;
 			}
 			if (this.scope === undefined) continue;
-			const found = find_layout(this.scope, layout);
-			if (found === undefined) {
-				errors.push(`${where}: unknown layout ${this.scope.name}.${layout}`);
+			let found;
+			try {
+				found = this.scope.get_layout(layout);
+			} catch (error) {
+				errors.push(`${where}: ${error.message}`);
 				continue;
 			}
 			const block = found.create_ldata(name);

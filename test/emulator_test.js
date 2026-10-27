@@ -285,10 +285,11 @@ servers:
   - { protocol: tcp, port: 1502 }
 `);
 
-		assert.throws(() => new Modbus_Emulator(missing), (e) => e.errors.length === 1
-			&& e.errors[0].startsWith("cannot read the file: ENOENT"));
-		assert.throws(() => new Modbus_Emulator([file, missing]), (e) => e.errors.length === 1
-			&& e.errors[0].startsWith(`${missing}: cannot read the file: ENOENT`));
+		// the error of yaml_file names the file
+		for (const descriptions of [missing, [file, missing]]) {
+			assert.throws(() => new Modbus_Emulator(descriptions), (e) => e.errors.length === 1
+				&& e.errors[0].startsWith("ENOENT") && e.errors[0].includes(missing));
+		}
 	});
 
 	test("blocks and servers are required", () => {

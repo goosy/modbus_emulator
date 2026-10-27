@@ -9,6 +9,31 @@ import { Modbus_Emulator } from "../src/index.js";
 // several description files are read together, and the scope may be given in any of them
 const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-descriptions-"));
 
+// a failed registration does not use up the scope, so this goes first
+test("a layout error between the files names them", () => {
+	writeFileSync(join(dir, "listed_a.yaml"), `
+scope: descriptions
+layouts: [P]
+item_tables:
+  P:
+    - { name: a, type: UInt, offset: 0, init_value: 0 }
+`);
+	writeFileSync(join(dir, "listed_b.yaml"), `
+layouts: [P]
+blocks:
+  - { name: a, unit_id: 1, layout: P }
+servers:
+  - { protocol: tcp, port: 1502 }
+`);
+	assert.throws(
+		() => new Modbus_Emulator([join(dir, "listed_a.yaml"), join(dir, "listed_b.yaml")]),
+		(e) => {
+			assert.deepEqual(e.errors, [`layout P is listed in ${join(dir, "listed_a.yaml")} and ${join(dir, "listed_b.yaml")}`]);
+			return true;
+		},
+	);
+});
+
 test("several files are joined in order and their layouts are registered together", () => {
 	writeFileSync(join(dir, "layouts.yaml"), `
 layouts: [PUMP]
