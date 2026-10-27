@@ -3,18 +3,8 @@ import { create_scope, get_scope } from "layout-data";
 import { Unit_Map, create_handler } from "./unit_map.js";
 import { create_tcp_server, create_rtu_server } from "./server.js";
 
-/**
- * The layout-data scope of the package: one per process, bound by the first emulator that gets its scope
- * (doc/spec.md 4).
- *
- * @type {import('layout-data').Layout_Scope | undefined}
- */
-let package_scope;
-
-/** A scope name made from the time in UTC, for an emulator given no scope: `s` and the year to the millisecond. */
-function time_scope_name() {
-	return `s${new Date().toISOString().replace(/\D/g, "")}`;
-}
+/** The scope the descriptions are loaded into when the caller names none (doc/spec.md 4). */
+const DEFAULT_SCOPE = "modbus_emulator";
 
 // the serial settings es-modbus accepts
 const PARITIES = ["none", "odd", "even"];
@@ -92,11 +82,11 @@ export class Modbus_Emulator extends EventEmitter {
 	 * @param {import('layout-data').Description|import('layout-data').Description[]} descriptions - A description
 	 *     compiled by `desc_file` or `yaml`, or a list of them, as the scope's `load` takes them: the `blocks` and
 	 *     `servers` of the descriptions are joined in order, and the descriptions are loaded together into the scope.
-	 * @param {string} [scope] - The name of the layout scope, created when it does not exist; by default the scope
-	 *     the package is bound to, or a name made from the time before the binding.
+	 * @param {string} [scope="modbus_emulator"] - The name of the layout scope the descriptions are loaded into,
+	 *     created when it does not exist.
 	 * @throws {Error} With `errors`, every violation found, when the descriptions are not valid.
 	 */
-	constructor(descriptions, scope) {
+	constructor(descriptions, scope = DEFAULT_SCOPE) {
 		super();
 		const items = Array.isArray(descriptions) ? descriptions : [descriptions];
 		const errors = [];
@@ -126,16 +116,22 @@ export class Modbus_Emulator extends EventEmitter {
 		if (errors.length > 0) fail();
 
 		const checked_servers = this.#read_servers(server_entries, errors);
+		const before = errors.length;
 		this.#check_blocks(block_entries, errors);
-		// a check that fails before loading leaves the scope as it was
-		if (errors.length > 0) fail();
+		// a block that cannot be attached fails before loading: nothing is loaded then
+		if (errors.length > before) fail();
 
 		const loaded = this.#load(scope, descriptions, errors);
 		if (loaded === undefined) fail();
 		this.layouts = loaded.layouts;
-		this.#attach_blocks(block_entries, loaded.ldata, errors);
+		this.blocks = new Map(Object.entries(loaded.ldata));
+		this.#attach_blocks(block_entries, errors);
 		this.#check_server_units(checked_servers, errors);
-		if (errors.length > 0) fail();
+		if (errors.length > 0) {
+			// the block names go back to their layouts, so the descriptions can be constructed again
+			this.#release_blocks();
+			fail();
+		}
 
 		this.handler = create_handler(this.unit_map);
 		for (const name of HANDLER_EVENTS) this.handler.on(name, (payload) => this.emit(name, payload));
@@ -151,27 +147,24 @@ export class Modbus_Emulator extends EventEmitter {
 	}
 
 	/**
-	 * Loads the descriptions into the scope of a name, created when it does not exist, and binds the package to
-	 * it: layout-data registers the layouts, reusing a layout of the same structure and name, and creates the
-	 * Ldata of the blocks. Leaves `scope` unset on an error.
+	 * Loads the descriptions into the scope of a name, created when it does not exist: layout-data registers the
+	 * layouts, reusing a layout of the same structure and name, and creates the Ldata of the blocks.
 	 *
 	 * @return {import('layout-data').Registration | undefined} Undefined after an error: nothing is loaded then.
 	 */
-	#load(name = package_scope?.name ?? time_scope_name(), descriptions, errors) {
-		if (package_scope !== undefined && package_scope.name !== name) {
-			errors.push(`scope ${name}: the package uses scope ${package_scope.name}`);
-			return undefined;
-		}
+	#load(name, descriptions, errors) {
 		try {
-			const scope = get_scope(name) ?? create_scope(name);
-			const loaded = scope.load(descriptions);
-			this.scope = scope;
-			package_scope ??= scope;
-			return loaded;
+			this.scope = get_scope(name) ?? create_scope(name);
+			return this.scope.load(descriptions);
 		} catch (e) {
 			errors.push(...(e.errors ?? [e.message]));
 			return undefined;
 		}
+	}
+
+	/** Gives the block names back to their layouts, which then may create blocks of the same names again. */
+	#release_blocks() {
+		for (const [name, block] of this.blocks) block.layout.delete_ldata(name);
 	}
 
 	/** Warns of the broadcast and reserved units a server on a serial bus answers (es-modbus: protocol not tcp). */
@@ -200,11 +193,9 @@ export class Modbus_Emulator extends EventEmitter {
 			const { unit_id, start = 0, offset = 0 } = entry;
 			if (!Number.isInteger(unit_id) || unit_id < 0 || unit_id > 255) {
 				errors.push(`${where}: unit_id must be an integer from 0 to 255`);
-				continue;
 			}
 			if (!Number.isInteger(start) || start < 0 || start % 2 !== 0) {
 				errors.push(`${where}: start must be an even non-negative byte offset`);
-				continue;
 			}
 			if (!Number.isInteger(offset) || offset < 0 || offset % 2 !== 0) {
 				errors.push(`${where}: offset must be an even non-negative byte offset`);
@@ -212,13 +203,11 @@ export class Modbus_Emulator extends EventEmitter {
 		}
 	}
 
-	/** Attaches every loaded block to its unit, in the order of the entries; an overlap is the error of `attach_unit`. */
-	#attach_blocks(entries, ldata, errors) {
+	/** Attaches every block to its unit; an overlap in a unit is the error of `attach_unit`. */
+	#attach_blocks(entries, errors) {
 		for (const { entry: { name, unit_id, start = 0, offset = 0 }, where } of entries) {
-			const block = ldata[name];
-			this.blocks.set(name, block);
 			try {
-				this.unit_map.attach_unit(unit_id, block, start, offset);
+				this.unit_map.attach_unit(unit_id, this.blocks.get(name), start, offset);
 			} catch (error) {
 				errors.push(`${where}: ${error.message}`);
 			}
@@ -329,8 +318,12 @@ export class Modbus_Emulator extends EventEmitter {
 		throw new AggregateError(failures, `${failures.length} of ${this.servers.length} servers failed to start`);
 	}
 
-	/** Stops all the servers. */
+	/**
+	 * Stops all the servers, and gives the block names back to their layouts: the same descriptions can then be
+	 * constructed again in the scope. The blocks keep working, and `start()` serves them again.
+	 */
 	async stop() {
 		await Promise.all(this.servers.map((server) => server.stop()));
+		this.#release_blocks();
 	}
 }

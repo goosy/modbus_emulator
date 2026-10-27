@@ -134,14 +134,14 @@ export type Server_Event_Name =
 export class Modbus_Emulator extends EventEmitter {
 	/**
 	 * @param descriptions - Compiled by `desc_file` or `yaml`, as the `load` of a scope takes them.
-	 * @param scope - The name of the layout scope; by default the scope the package is bound to, or a name made
-	 *     from the time before the binding.
+	 * @param scope - The name of the layout scope the descriptions are loaded into, created when it does not
+	 *     exist; `modbus_emulator` by default.
 	 */
 	constructor(descriptions: Description | Description[], scope?: string);
 	readonly unit_map: Unit_Map;
 	readonly handler: Modbus_Handler;
 	readonly blocks: ReadonlyMap<string, Ldata>;
-	/** The layout scope the descriptions are loaded into; the one scope of the package. */
+	/** The layout scope the descriptions are loaded into. */
 	readonly scope: Layout_Scope;
 	/** The layouts of the descriptions, by name. */
 	readonly layouts: Readonly<Record<string, Layout>>;
@@ -155,6 +155,7 @@ export class Modbus_Emulator extends EventEmitter {
 	 * the servers, or with `partial: true` leaving the started ones running.
 	 */
 	start(options?: { partial?: boolean }): Promise<void>;
+	/** Stops all the servers and gives the block names back to their layouts; the blocks keep working. */
 	stop(): Promise<void>;
 	on(event: Server_Event_Name, listener: (event: Server_Event) => void): this;
 	on(event: "unmapped", listener: (event: Unmapped_Event) => void): this;
