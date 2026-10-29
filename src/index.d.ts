@@ -127,17 +127,36 @@ export type Server_Event_Name =
 	| "server_start" | "server_stop" | "server_socket_connect" | "server_socket_disconnect" | "server_socket_error"
 	| "server_error" | "server_handler_error" | "server_receive" | "server_send";
 
+/** A source of `load`: a description file (a path or a file: URL), or a Description compiled by `desc_file` or `yaml`. */
+export type Emulator_Source = string | URL | Description;
+
+/** A diagnostic of a load: a server on a serial bus that answers unit 0 or a reserved unit. */
+export interface Warning_Event {
+	server: Modbus_Server;
+	/** Starts with the name of the server. */
+	message: string;
+}
+
 /**
  * The emulator forwards the events of its servers as `server_<name>`, and the events of its handler unchanged.
- * It never emits `error`.
+ * It emits `warning` for the diagnostics of a load, and never emits `error`.
  */
 export class Modbus_Emulator extends EventEmitter {
 	/**
-	 * @param descriptions - Compiled by `desc_file` or `yaml`, as the `load` of a scope takes them.
+	 * Creates an emulator without blocks and services: `load` loads the descriptions.
+	 *
 	 * @param scope - The name of the layout scope the descriptions are loaded into, created when it does not
 	 *     exist; `modbus_emulator` by default.
 	 */
-	constructor(descriptions: Description | Description[], scope?: string);
+	constructor(scope?: string);
+	/**
+	 * Loads sources, all or nothing, any number of times; the servers are not started. A source is a description
+	 * file, compiled with `desc_file`, or a Description.
+	 *
+	 * @returns The blocks and the servers this call added.
+	 * @throws {Error} With `errors`, every violation found; the emulator and the scope are left as they were.
+	 */
+	load(sources: Emulator_Source | Emulator_Source[]): { blocks: Map<string, Ldata>, servers: Modbus_Server[] };
 	readonly unit_map: Unit_Map;
 	readonly handler: Modbus_Handler;
 	readonly blocks: ReadonlyMap<string, Ldata>;
@@ -145,19 +164,19 @@ export class Modbus_Emulator extends EventEmitter {
 	readonly scope: Layout_Scope;
 	/** The layouts of the descriptions, by name. */
 	readonly layouts: Readonly<Record<string, Layout>>;
-	/** Item `i` is the service entry `i` of the description, named by its label. */
+	/** Item `i` is the service entry `i` of the descriptions loaded, in order, named by its label. */
 	readonly servers: readonly Modbus_Server[];
-	/** The diagnostics found at construction. */
-	readonly warnings: readonly string[];
 	block(name: string): Ldata | undefined;
 	/**
-	 * Starts all the servers. When any fails, rejects with an `AggregateError` of every failure, after stopping all
-	 * the servers, or with `partial: true` leaving the started ones running.
+	 * Starts the servers that are not running. When any fails, rejects with an `AggregateError` of every failure,
+	 * after stopping all the servers, or with `partial: true` leaving the started ones running. Rejects with an
+	 * `Error` when the emulator has no server.
 	 */
 	start(options?: { partial?: boolean }): Promise<void>;
 	/** Stops all the servers and gives the block names back to their layouts; the blocks keep working. */
 	stop(): Promise<void>;
 	on(event: Server_Event_Name, listener: (event: Server_Event) => void): this;
+	on(event: "warning", listener: (event: Warning_Event) => void): this;
 	on(event: "unmapped", listener: (event: Unmapped_Event) => void): this;
 	on(event: "unmapped_limit", listener: (event: { limit: number }) => void): this;
 	on(event: "listener_error", listener: (event: Listener_Error_Event) => void): this;

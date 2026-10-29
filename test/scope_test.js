@@ -7,7 +7,7 @@ import { Modbus_Emulator, desc_file, get_scope } from "../src/index.js";
 
 // The scope is chosen in code: the descriptions are loaded into the scope of the name given, by default
 // modbus_emulator, where layout-data reuses a layout of the same structure and name; stop() gives the
-// block names back, so the same description can be constructed again in the scope
+// block names back, so another emulator can load the same description in the scope
 const SERVERS = [{ protocol: "tcp", port: 1502 }];
 const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-scope-"));
 let file_seq = 0;
@@ -31,30 +31,37 @@ const description_of = (layout, init_value, block = "block") => {
 	return description;
 };
 
-const errors_of = (...args) => {
+/** An emulator in the scope of a name, with a description loaded. */
+const emulator_of = (description, scope) => {
+	const emulator = new Modbus_Emulator(scope);
+	emulator.load(description);
+	return emulator;
+};
+
+const errors_of = (description, scope) => {
 	try {
-		new Modbus_Emulator(...args);
+		emulator_of(description, scope);
 	} catch (e) {
 		return e.errors;
 	}
-	assert.fail("the construction did not fail");
+	assert.fail("the load did not fail");
 };
 
 test("without a scope name the descriptions are loaded into the scope modbus_emulator", async () => {
-	const emulator = new Modbus_Emulator(description_of("DEFAULT", 7));
+	const emulator = emulator_of(description_of("DEFAULT", 7));
 
 	assert.equal(emulator.scope, get_scope("modbus_emulator"));
 	assert.equal(emulator.block("block").id, 7);
 	await emulator.stop();
 });
 
-test("a description is constructed again in its scope once the first emulator stopped", async () => {
+test("another emulator loads a description in its scope once the first emulator stopped", async () => {
 	const description = description_of("SHARED", 1);
-	const first = new Modbus_Emulator(description, "shared");
+	const first = emulator_of(description, "shared");
 
 	assert.deepEqual(errors_of(description, "shared"), [`${paths.get(description)}: block block: ldata shared.SHARED.block already exists`]);
 	await first.stop();
-	const second = new Modbus_Emulator(description, "shared");
+	const second = emulator_of(description, "shared");
 
 	assert.equal(second.scope, first.scope);
 	assert.equal(second.layouts.SHARED, first.layouts.SHARED);
@@ -64,7 +71,7 @@ test("a description is constructed again in its scope once the first emulator st
 });
 
 test("a stopped emulator keeps its blocks, whose names its layouts no longer hold", async () => {
-	const emulator = new Modbus_Emulator(description_of("STOPPED", 3), "stopped");
+	const emulator = emulator_of(description_of("STOPPED", 3), "stopped");
 	const layout = emulator.scope.get_layout("STOPPED");
 
 	assert.equal(layout.get_ldata("block"), emulator.block("block"));
@@ -75,8 +82,8 @@ test("a stopped emulator keeps its blocks, whose names its layouts no longer hol
 });
 
 test("layouts of the same name and different structures are loaded into different scopes", () => {
-	const first = new Modbus_Emulator(description_of("DIFF", 1), "diff_1");
-	const second = new Modbus_Emulator(description_of("DIFF", 2), "diff_2");
+	const first = emulator_of(description_of("DIFF", 1), "diff_1");
+	const second = emulator_of(description_of("DIFF", 2), "diff_2");
 
 	assert.notEqual(second.layouts.DIFF, first.layouts.DIFF);
 	assert.equal(first.block("block").id, 1);

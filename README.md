@@ -37,9 +37,11 @@ servers:
 ```
 
 ```js
-import { Modbus_Emulator, desc_file } from "modbus-emulator";
+import { Modbus_Emulator } from "modbus-emulator";
 
-const emulator = new Modbus_Emulator(desc_file`plant.yaml`, "plant"); // loaded into the layout-data scope plant
+const emulator = new Modbus_Emulator("plant"); // descriptions are loaded into the layout-data scope plant
+emulator.on("warning", ({ message }) => console.warn(message));
+emulator.load("plant.yaml"); // may be called again to add blocks and services
 await emulator.start();
 
 const pump = emulator.block("pump_1"); // a Ldata of layout-data
@@ -48,9 +50,9 @@ const pump = emulator.block("pump_1"); // a Ldata of layout-data
 await emulator.stop();
 ```
 
-The constructor takes compiled descriptions, a `Description` or a list of them: compile a description file with ``desc_file`plant.yaml` `` or YAML text with ``yaml`...` ``, which throw the errors of reading and compiling. An object of the shape of a description is compiled with `yaml(JSON.stringify(object))`. Invalid descriptions throw an `Error`; its `errors` property lists all violations.
+`load` takes description files, or `Description`s compiled in code with ``yaml`...` `` or ``desc_file`...` ``, mixed in a list as needed: an object of the shape of a description is compiled with `yaml(JSON.stringify(object))`. Invalid sources throw an `Error`; its `errors` property lists all violations, and the failed `load` changes nothing. A later `load` is checked against what the emulator already has (block names, overlaps, ports), and `start()` starts only the services that are not running yet.
 
-A block names a layout of its own description file; the description may take the item tables of another file with `imports: [common.yaml]` and list the layout under `layouts`. The descriptions are loaded into a [layout-data scope](https://github.com/goosy/layout-data/blob/main/doc/spec-layout.md), apart from the layouts of your code and of other libraries. The scope is chosen in code, by the second argument of the constructor, `modbus_emulator` by default, and created when it does not exist. In a scope a layout of the same name and structure is shared, and a layout of the same name and another structure is an error: load such descriptions into another scope. The block names are held by their layouts until `stop()` gives them back, so the same description can be constructed again in a scope once the earlier emulator stopped.
+A block names a layout of its own description file; the description may take the item tables of another file with `imports: [common.yaml]` and list the layout under `layouts`. The descriptions are loaded into a [layout-data scope](https://github.com/goosy/layout-data/blob/main/doc/spec-layout.md), apart from the layouts of your code and of other libraries. The scope is chosen in code, by the argument of the constructor, `modbus_emulator` by default, and created when it does not exist. In a scope a layout of the same name and structure is shared, and a layout of the same name and another structure is an error: load such descriptions into another scope. The block names are held by their layouts until `stop()` gives them back, so another emulator can load the same description in a scope once the earlier emulator stopped.
 
 ### Without a description file
 
@@ -93,7 +95,7 @@ emulator.on("unmapped", ({ kind, unit_id, addr }) => console.warn(`unmapped ${ki
 - The emulator forwards each event `<name>` of its servers as `server_<name>` with `{ server }` and the argument of the event (`socket`, `error` or `frame`); `server.name` is the label of the service, such as `servers[0] (modbus://0.0.0.0:1502)`.
 - The handler emits `unmapped` once per unmapped address (at most 1024, then `unmapped_limit` once) and `listener_error` when a block listener throws; the emulator forwards them.
 - The emulator always listens to `error` of its servers and never emits `error`, so it never throws from an event.
-- Diagnostics found at construction are in `emulator.warnings`.
+- The emulator emits `warning` with `{ server, message }` for the diagnostics of a `load`, such as a service on a serial bus that answers the broadcast unit 0.
 
 ## Address mapping
 
