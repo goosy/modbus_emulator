@@ -1,9 +1,9 @@
 ---
 id: k7mkk18w
 opened: 2026-10-28T17:28:21.928Z
-closed:
+closed: 2026-10-29T08:44:29.000Z
 title: 构造只建实例，描述由 emulator.load 多次加载，全部检查先于 scope.load
-status: accepted    # open | accepted | fixed | rejected | wontfix
+status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
@@ -42,8 +42,9 @@ issue#7w2awj10 以两条理由拒绝了拆分构造函数，两条都已不成�
 - 未写 `unit_ids` 的服务应答单元表的全部单元，但 `create_tcp_server` / `create_rtu_server` 在建服务时取的是当时单元表的快照，后加载的单元不会被应答。每次 `load` 之后，对未写 `unit_ids` 的服务调用 `set_unit_ids(unit_map.unit_ids)`，使「全部单元」随加载更新。
 - 「`blocks`、`servers` 必须是非空列表」改为每次加载的描述中两者可以各自省略（只含块或只含服务的描述是正常的），但一次加载至少给出其中之一；`start()` 在没有任何服务时抛出。
 - `load` 保持同步，只建服务不启动；运行中加载的新服务由再次调用 `start()` 启动，`start()` 只启动尚未运行的服务：es-modbus 的 `start()` 对已启动的服务是重启（先断开全部连接、关闭监听或串口，再重新打开），所以 emulator 要记下哪些服务已启动，不能对全部服务再调用一次。
-- 诊断（串口总线上的广播与保留单元）在 `load` 中作为事件 `warning` 发出，此时调用方已能挂监听；`warnings` 数组随之删除。
-- `stop()` 照旧交还所有已加载块的块名；块仍属于 emulator，再次 `load` 同名块仍按上面的块名规则报错。
+- 诊断（串口总线上的广播与保留单元）在 `load` 中作为事件 `warning` 发出，载荷 `{ server, message }`，此时调用方已能挂监听；`warnings` 数组随之删除。未写 `unit_ids` 的串口服务在后来的加载增加单元时，只对新增的单元再检查一次。
+- 条目接着先前加载的条目编号（`blocks[i]`、`servers[i]` 是条目在 emulator 中的位置），服务的标签因此在 emulator 中保持唯一。
+- `stop()` 交还 emulator 持有的块名；块仍属于 emulator，再次 `load` 同名块仍按上面的块名规则报错。emulator 记下它持有的块名，`stop()` 只交还这些：先前已交还的块名此后可能已被另一个 emulator 持有，`stop` 后再 `load`、再 `stop` 不能把它删掉。
 - 同步修改 doc/spec.md、doc/design.md（含 zh-CN）、`src/index.d.ts`、README 与测试。
 
 否决的方案：

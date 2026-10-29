@@ -3,27 +3,24 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { Modbus_Emulator, desc_file, get_scope } from "../src/index.js";
+import { Modbus_Emulator, get_scope } from "../src/index.js";
 
 // The layouts of the descriptions loaded into a scope: a layout error loads nothing, a layout file is
-// loaded with the other descriptions, and layout-data reuses or refuses the layouts already in the scope
+// loaded with the other files, and layout-data reuses or refuses the layouts already in the scope
 const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-layout-"));
 const SERVERS = [{ protocol: "tcp", port: 1502 }];
 let file_seq = 0;
-// the file of each compiled description, which the errors of the load name
-const paths = new Map();
 
-/** Writes a description file of a description given as data and compiles it, remembering its path. JSON is YAML. */
+/** Writes a description file of a description given as data and returns its path. JSON is YAML. */
 const write_description = (description) => {
 	const path = join(dir, `description_${++file_seq}.yaml`);
 	writeFileSync(path, JSON.stringify(description));
-	const compiled = desc_file(path);
-	paths.set(compiled, path);
-	return compiled;
+	return path;
 };
 
-test("a layout error is reported by the compilation, and nothing is loaded", () => {
-	assert.throws(() => new Modbus_Emulator(write_description({
+test("a layout error is reported, and nothing is loaded", () => {
+	const emulator = new Modbus_Emulator("layout_bad");
+	assert.throws(() => emulator.load(write_description({
 		layouts: ["BAD"],
 		item_tables: {
 			BAD: [
@@ -33,8 +30,9 @@ test("a layout error is reported by the compilation, and nothing is loaded", () 
 		},
 		blocks: [{ name: "a", unit_id: 1, layout: "BAD" }],
 		servers: SERVERS,
-	}), "layout_bad"), (e) => e.errors.length > 0 && e.errors.every((m) => m.includes("duplicated name")));
-	assert.equal(get_scope("layout_bad"), undefined);
+	})), (e) => e.errors.length > 0 && e.errors.every((m) => m.includes("duplicated name")));
+	assert.throws(() => get_scope("layout_bad").get_layout("BAD"));
+	assert.equal(emulator.blocks.size, 0);
 });
 
 const file = join(dir, "emulator.yaml");
@@ -58,8 +56,9 @@ servers:
   - { protocol: tcp, port: 1502 }
 `);
 
-test("a layout file is an item of the list, loaded with the other descriptions", () => {
-	const emulator = new Modbus_Emulator([desc_file(layout_file), desc_file(file)], "plant");
+test("a layout file is an item of the list, loaded with the other files", () => {
+	const emulator = new Modbus_Emulator("plant");
+	emulator.load([layout_file, file]);
 
 	assert.equal(emulator.block("pump").id, 7);
 	assert.equal(emulator.block("one").a, 5);
@@ -75,24 +74,25 @@ test("another layout of a name in the scope is an error", () => {
 		blocks: [{ name: "other", unit_id: 1, layout: "PUMP" }],
 		servers: SERVERS,
 	});
-	assert.throws(() => new Modbus_Emulator(other, "plant"), (e) => {
-		assert.deepEqual(e.errors, [`${paths.get(other)}: another layout of a different structure is already named plant.PUMP`]);
+	assert.throws(() => new Modbus_Emulator("plant").load(other), (e) => {
+		assert.deepEqual(e.errors, [`${other}: another layout of a different structure is already named plant.PUMP`]);
 		return true;
 	});
 });
 
-test("a construction that fails after loading gives the block names back", () => {
+test("an overlap of the blocks fails before loading: the scope is left as it was", () => {
 	const description = {
 		layouts: ["ONE"],
 		item_tables: { ONE: [{ name: "a", type: "UInt", offset: 0, init_value: 5 }] },
 		blocks: [{ name: "x", unit_id: 1, layout: "ONE" }, { name: "y", unit_id: 1, layout: "ONE" }],
 		servers: SERVERS,
 	};
-	assert.throws(() => new Modbus_Emulator(write_description(description), "overlap"),
+	const emulator = new Modbus_Emulator("overlap");
+	assert.throws(() => emulator.load(write_description(description)),
 		(e) => e.errors.length === 1 && e.errors[0].startsWith("blocks[1]: unit 1: "));
-	assert.throws(() => get_scope("overlap").get_layout("ONE").get_ldata("x"), /unknown ldata overlap\.ONE\.x/);
+	assert.throws(() => emulator.scope.get_layout("ONE"), /ONE/);
 
 	description.blocks[1].start = 2;
-	const emulator = new Modbus_Emulator(write_description(description), "overlap");
+	emulator.load(write_description(description));
 	assert.deepEqual([...emulator.blocks.keys()], ["x", "y"]);
 });
