@@ -4,7 +4,7 @@ opened: 2026-10-28T17:28:21.928Z
 closed: 2026-10-29T04:58:18.000Z
 title: get_coil 用 read_bytes 读位，access 报出整个字节的 Bool
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [5468819]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

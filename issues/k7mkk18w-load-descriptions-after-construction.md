@@ -4,7 +4,7 @@ opened: 2026-10-28T17:28:21.928Z
 closed: 2026-10-29T08:44:29.000Z
 title: 构造只建实例，描述由 emulator.load 多次加载，全部检查先于 scope.load
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [8b3ecad]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

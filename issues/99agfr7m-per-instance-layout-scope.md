@@ -4,7 +4,7 @@ opened: 2026-10-27T18:41:16.423Z
 closed: 2026-10-27T22:01:36.000Z
 title: 布局登记域绑定在整个包上，而不是各个模拟器实例上
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [642e037]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

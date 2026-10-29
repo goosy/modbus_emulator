@@ -4,7 +4,7 @@ opened: 2026-10-29T12:28:54.912Z
 closed: 2026-10-29T12:58:36.000Z
 title: 升级依赖 layout-data 0.6.0 并适配，构造方法接受编译好的描述
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
+fixed_in: [6f758ae]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
 problem_title: 问题描述

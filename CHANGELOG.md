@@ -1,5 +1,49 @@
 # Changelog
 
+## v0.2.0
+
+### Breaking changes
+
+- **Requires layout-data 0.6.0.** Layouts live in layout-data scopes instead of one registration per process. A description follows the format of layout-data 0.6.0: it lists its layout names under `layouts`, holds the item tables under `item_tables`, and takes item tables of other files with `imports`; the root key `layouts_file` is dropped.
+- **Construction and loading are separate.** `new Modbus_Emulator(source)` is replaced by `new Modbus_Emulator(scope)`, which only creates the emulator, with the name of the layout scope it loads into (`modbus_emulator` by default, created when it does not exist), so several emulators can live in one process. `emulator.load(sources)` loads descriptions any number of times and returns the `{ blocks, servers }` it added. A source is a description file (a path or a `file:` URL) or a `Description` compiled by the caller with `desc_file` or `yaml`; the former plain-object entry is dropped.
+- **Diagnostics of a load are `warning` events**; the `warnings` array is removed.
+- **The forwarded layout-data API** is now `Ldata`, `Ltag`, `create_scope`, `get_scope`, `yaml` and `desc_file`; `register_layout`, `get_layout`, `io_index_table` and `render_types` are removed, as layout lookup, ldata creation and `io_index_table` are methods of a scope or a layout. The emulator exposes its `scope`.
+
+### Features
+
+- **All-or-nothing loads.** Every check comes before anything is loaded, including the block overlaps, the ports and the `unit_ids`, checked against the earlier loads, so a failed load changes neither the emulator nor the scope. A service without `unit_ids` also answers the units of later loads.
+- **Restartable.** `stop()` gives the block names back to their layouts, so the same description can be loaded again in the scope once the emulator stopped; the blocks keep working, and `start()` serves them again. `start()` starts only the services that are not running.
+
+### Fixes
+
+- A single-coil read (FC 1 with quantity 1) emits an `access` that names only the coil read, not every Bool of its byte.
+
+### Artifacts
+
+- Published as a bundle (`dist/index.js`) with its type declarations; `layout-data` and `es-modbus` are not bundled and stay as imports. The direct dependency on `yaml` is dropped.
+
+## v0.2.0 (中文)
+
+### 不兼容变更
+
+- **要求 layout-data 0.6.0。** 布局存放在 layout-data 的登记域中，不再是每个进程一次性登记。描述采用 layout-data 0.6.0 的格式：在 `layouts` 下列出布局名，在 `item_tables` 下给出条目表，用 `imports` 引用其他文件的条目表；根键 `layouts_file` 被取消。
+- **构造与装入分离。** `new Modbus_Emulator(source)` 改为 `new Modbus_Emulator(scope)`，只创建模拟器，参数是它装入描述所用的布局登记域名（默认 `modbus_emulator`，不存在时创建），因此一个进程中可以有多个模拟器。`emulator.load(sources)` 可多次装入描述，返回本次新增的 `{ blocks, servers }`。来源是描述文件（路径或 `file:` URL），或由调用方用 `desc_file`、`yaml` 编译的 `Description`；原先的普通对象入口被取消。
+- **装入的诊断改为 `warning` 事件**；`warnings` 数组被移除。
+- **转发的 layout-data 接口** 改为 `Ldata`、`Ltag`、`create_scope`、`get_scope`、`yaml` 和 `desc_file`；`register_layout`、`get_layout`、`io_index_table` 和 `render_types` 被移除，因为查找布局、创建 ldata 和 `io_index_table` 都已是登记域或布局的方法。模拟器提供其 `scope`。
+
+### 功能
+
+- **装入要么全部成功、要么不生效。** 所有检查都在装入之前完成，包括数据块重叠、端口和 `unit_ids`，并与之前的装入一起核对；装入失败时模拟器和登记域都保持原样。未给 `unit_ids` 的服务也应答之后装入的单元。
+- **可重新启动。** `stop()` 把数据块名交还给它们的布局，模拟器停止后，同一描述可以在该登记域中再次装入；数据块仍可使用，`start()` 会重新对外提供它们。`start()` 只启动尚未运行的服务。
+
+### 修复
+
+- 读单个线圈（数量为 1 的 FC 1）发出的 `access` 只列出被读的线圈，不再列出同一字节中的所有 Bool。
+
+### 产物
+
+- 以打包文件（`dist/index.js`）及其类型声明发布；`layout-data` 和 `es-modbus` 不打包，保持为 import。不再直接依赖 `yaml`。
+
 ## v0.1.0
 
 First release.
