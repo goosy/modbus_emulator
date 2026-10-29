@@ -1,12 +1,11 @@
 import type { Buffer } from "node:buffer";
 import type { EventEmitter } from "node:events";
 import type { Socket } from "node:net";
-import type { Ldata, Layout, Layout_Scope } from "layout-data";
+import type { Description, Ldata, Layout, Layout_Scope } from "layout-data";
 
-export { Ldata, Ltag, create_scope, get_scope, yaml, yaml_file } from "layout-data";
+export { Ldata, Ltag, create_scope, get_scope, yaml, desc_file } from "layout-data";
 export type {
-	Layout, Layout_Scope, Layout_Tag, Layout_Item, Tag_Item, Include_Item, Layout_Description,
-	Registered_Layouts, Endian, Tag_Type,
+	Layout, Layout_Scope, Layout_Tag, Layout_Desc, Block_Desc, Description, Registration, Endian, Tag_Type,
 } from "layout-data";
 
 /** A Modbus slave service (the server of es-modbus, a dependency of this package). */
@@ -133,13 +132,18 @@ export type Server_Event_Name =
  * It never emits `error`.
  */
 export class Modbus_Emulator extends EventEmitter {
-	constructor(descriptions: string | string[]);
+	/**
+	 * @param descriptions - Compiled by `desc_file` or `yaml`, as the `load` of a scope takes them.
+	 * @param scope - The name of the layout scope; by default the scope the package is bound to, or a name made
+	 *     from the time before the binding.
+	 */
+	constructor(descriptions: Description | Description[], scope?: string);
 	readonly unit_map: Unit_Map;
 	readonly handler: Modbus_Handler;
 	readonly blocks: ReadonlyMap<string, Ldata>;
-	/** The layout scope of the blocks, named by the description; the one scope of the package. */
+	/** The layout scope the descriptions are loaded into; the one scope of the package. */
 	readonly scope: Layout_Scope;
-	/** The layouts this emulator registered, by name; empty when the description has no layouts. */
+	/** The layouts of the descriptions, by name. */
 	readonly layouts: Readonly<Record<string, Layout>>;
 	/** Item `i` is the service entry `i` of the description, named by its label. */
 	readonly servers: readonly Modbus_Server[];

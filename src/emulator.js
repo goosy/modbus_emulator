@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { create_scope, get_scope, yaml_file } from "layout-data";
+import { create_scope, get_scope } from "layout-data";
 import { Unit_Map, create_handler } from "./unit_map.js";
 import { create_tcp_server, create_rtu_server } from "./server.js";
 
@@ -11,7 +11,7 @@ import { create_tcp_server, create_rtu_server } from "./server.js";
  */
 let package_scope;
 
-/** A scope name made from the time in UTC, for a description without scope: `s` and the year to the millisecond. */
+/** A scope name made from the time in UTC, for an emulator given no scope: `s` and the year to the millisecond. */
 function time_scope_name() {
 	return `s${new Date().toISOString().replace(/\D/g, "")}`;
 }
@@ -65,7 +65,7 @@ function check_keys(entry, allowed, where, errors) {
 
 /**
  * A Modbus device emulator: slave services over the data blocks described by
- * a YAML file (doc/spec.md 3).
+ * compiled descriptions (doc/spec.md 3).
  *
  * The data blocks are Ldata objects, available as `blocks` by name: a caller
  * reads and writes their tags to simulate the running of a device, and the
@@ -79,9 +79,9 @@ export class Modbus_Emulator extends EventEmitter {
 	handler;
 	/** @type {Map<string, import('layout-data').Ldata>} The data blocks by block name. */
 	blocks = new Map();
-	/** @type {import('layout-data').Layout_Scope} The layout scope of the blocks, named by the description. */
+	/** @type {import('layout-data').Layout_Scope} The layout scope the descriptions are loaded into. */
 	scope;
-	/** @type {Object<string, Object>} The layouts this emulator registered, by name; empty without layouts. */
+	/** @type {Object<string, import('layout-data').Layout>} The layouts of the descriptions, by name. */
 	layouts;
 	/** @type {import('es-modbus').Modbus_Server[]} Named by their labels, e.g. `servers[1] (modbus://0.0.0.0:503)`. */
 	servers = [];
@@ -89,68 +89,51 @@ export class Modbus_Emulator extends EventEmitter {
 	warnings = [];
 
 	/**
-	 * @param {string|string[]} descriptions - The path of an emulator description file (YAML), or a list of them: the
-	 *     `blocks` and `servers` of the files are joined in order, and their layouts are registered together in
-	 *     the scope they name. A layout file is an item of the list like the others.
-	 *     Not public: an object of the same structure is also accepted in place of a path, for the controller that
-	 *     assembles it.
-	 * @throws {Error} With `errors`, every violation found, when the file is not valid.
+	 * @param {import('layout-data').Description|import('layout-data').Description[]} descriptions - A description
+	 *     compiled by `desc_file` or `yaml`, or a list of them, as the scope's `load` takes them: the `blocks` and
+	 *     `servers` of the descriptions are joined in order, and the descriptions are loaded together into the scope.
+	 * @param {string} [scope] - The name of the layout scope, created when it does not exist; by default the scope
+	 *     the package is bound to, or a name made from the time before the binding.
+	 * @throws {Error} With `errors`, every violation found, when the descriptions are not valid.
 	 */
-	constructor(descriptions) {
+	constructor(descriptions, scope) {
 		super();
 		const items = Array.isArray(descriptions) ? descriptions : [descriptions];
-		const labels = items.map((item) => (typeof item === "string" ? item : "emulator description"));
 		const errors = [];
 		const fail = () => {
-			const error = new Error(`invalid emulator file ${labels.join(", ")}:\n${errors.join("\n")}`);
+			const error = new Error(`invalid emulator description:\n${errors.join("\n")}`);
 			error.errors = errors;
 			throw error;
 		};
-		// with several descriptions, a violation names its description
-		const prefixes = labels.map((label) => (items.length > 1 ? `${label}: ` : ""));
+		// with several descriptions, a violation names its description as layout-data names the items of a list
+		const prefixes = items.map((_, index) => (items.length > 1 ? `description #${index + 1}: ` : ""));
 		const block_entries = [];
 		const server_entries = [];
-		const layout_descriptions = [];
-		// the scope name and the label of the first description that gives it
-		let scope_name;
-		let scope_label;
 		for (const [index, item] of items.entries()) {
 			const prefix = prefixes[index];
-			let root = item;
-			if (typeof item === "string") {
-				// the object remembers its file, which the layout errors name; the errors of yaml_file name it too
-				try {
-					root = yaml_file(item);
-				} catch (e) {
-					errors.push(...e.errors);
-					continue;
-				}
-			}
-			if (root === null || typeof root !== "object" || Array.isArray(root)) {
-				errors.push(`${prefix}the root must be a mapping`);
+			// a Description always has its list of blocks; the load reports what else is wrong with it
+			if (!Array.isArray(item?.blocks)) {
+				errors.push(`${prefix}not a Description: compile it with desc_file or yaml`);
 				continue;
 			}
-			const { scope, blocks, servers, layouts, item_tables } = root;
-			if (scope !== undefined) {
-				if (typeof scope !== "string") errors.push(`${prefix}scope must be a string`);
-				else if (scope_name === undefined) [scope_name, scope_label] = [scope, labels[index]];
-				else if (scope !== scope_name) errors.push(`${prefix}scope ${scope} differs from scope ${scope_name} of ${scope_label}`);
-			}
-			for (const [key, list, entries] of [["blocks", blocks, block_entries], ["servers", servers, server_entries]]) {
-				if (list === undefined) continue;
-				if (!Array.isArray(list)) errors.push(`${prefix}the root key \`${key}\` must be a list`);
-				else for (const entry of list) entries.push({ entry, where: `${prefix}${key}[${entries.length}]` });
-			}
-			// the root is a description as it is: layout-data reads only layouts and item_tables
-			if (layouts !== undefined || item_tables !== undefined) layout_descriptions.push(root);
+			for (const entry of item.blocks) block_entries.push({ entry, where: `${prefix}blocks[${block_entries.length}]` });
+			// a Description keeps the root keys of this package as they are parsed
+			const { servers } = item;
+			if (servers === undefined) continue;
+			if (!Array.isArray(servers)) errors.push(`${prefix}the root key \`servers\` must be a list`);
+			else for (const entry of servers) server_entries.push({ entry, where: `${prefix}servers[${server_entries.length}]` });
 		}
 		if (errors.length > 0) fail();
 
-		const compiled = this.#get_scope(scope_name, layout_descriptions, errors);
-		this.layouts = compiled?.layouts ?? {};
-
 		const checked_servers = this.#read_servers(server_entries, errors);
-		this.#read_blocks(block_entries, errors);
+		this.#check_blocks(block_entries, errors);
+		// a check that fails before loading leaves the scope as it was
+		if (errors.length > 0) fail();
+
+		const loaded = this.#load(scope, descriptions, errors);
+		if (loaded === undefined) fail();
+		this.layouts = loaded.layouts;
+		this.#attach_blocks(block_entries, loaded.ldata, errors);
 		this.#check_server_units(checked_servers, errors);
 		if (errors.length > 0) fail();
 
@@ -168,32 +151,27 @@ export class Modbus_Emulator extends EventEmitter {
 	}
 
 	/**
-	 * Gets the scope of the description into `scope`, registering the layout descriptions in it, and binds the
-	 * package to it. Leaves `scope` unset on an error: no layout is known then.
+	 * Loads the descriptions into the scope of a name, created when it does not exist, and binds the package to
+	 * it: layout-data registers the layouts, reusing a layout of the same structure and name, and creates the
+	 * Ldata of the blocks. Leaves `scope` unset on an error.
 	 *
-	 * @return {import('layout-data').Registered_Layouts | undefined} The registration, when there was one.
+	 * @return {import('layout-data').Registration | undefined} Undefined after an error: nothing is loaded then.
 	 */
-	#get_scope(name = package_scope?.name ?? time_scope_name(), layout_descriptions, errors) {
+	#load(name = package_scope?.name ?? time_scope_name(), descriptions, errors) {
 		if (package_scope !== undefined && package_scope.name !== name) {
 			errors.push(`scope ${name}: the package uses scope ${package_scope.name}`);
 			return undefined;
 		}
-		let compiled;
-		if (layout_descriptions.length > 0) {
-			try {
-				const scope = get_scope(name) ?? create_scope(name);
-				compiled = scope.register_layout(layout_descriptions);
-				this.scope = scope;
-			} catch (e) {
-				errors.push(...(e.errors ?? [e.message]));
-			}
-		} else {
-			// without layouts the blocks use the layouts already registered in the scope
-			this.scope = get_scope(name);
-			if (this.scope === undefined) errors.push(`unknown scope ${name}`);
+		try {
+			const scope = get_scope(name) ?? create_scope(name);
+			const loaded = scope.load(descriptions);
+			this.scope = scope;
+			package_scope ??= scope;
+			return loaded;
+		} catch (e) {
+			errors.push(...(e.errors ?? [e.message]));
+			return undefined;
 		}
-		package_scope ??= this.scope;
-		return compiled;
 	}
 
 	/** Warns of the broadcast and reserved units a server on a serial bus answers (es-modbus: protocol not tcp). */
@@ -209,22 +187,17 @@ export class Modbus_Emulator extends EventEmitter {
 	}
 
 	/**
-	 * Without a scope no layout is known: an unknown layout is then not reported, as every block would repeat
-	 * the error of the scope.
+	 * Checks the keys of the blocks that belong to this package. layout-data checked `name` and `layout` when it
+	 * compiled the descriptions, and checks the block names across the descriptions when it loads them.
 	 */
-	#read_blocks(entries, errors) {
+	#check_blocks(entries, errors) {
 		if (entries.length === 0) {
 			errors.push("the root key `blocks` must be a non-empty list");
 			return;
 		}
 		for (const { entry, where } of entries) {
 			check_keys(entry, BLOCK_KEYS, where, errors);
-			const { unit_id, layout, start = 0, offset = 0 } = entry ?? {};
-			if (entry?.name !== undefined && (typeof entry.name !== "string" || entry.name === "")) {
-				errors.push(`${where}: name must be a non-empty string`);
-				continue;
-			}
-			const name = entry?.name ?? `unit_${unit_id}`;
+			const { unit_id, start = 0, offset = 0 } = entry;
 			if (!Number.isInteger(unit_id) || unit_id < 0 || unit_id > 255) {
 				errors.push(`${where}: unit_id must be an integer from 0 to 255`);
 				continue;
@@ -235,21 +208,14 @@ export class Modbus_Emulator extends EventEmitter {
 			}
 			if (!Number.isInteger(offset) || offset < 0 || offset % 2 !== 0) {
 				errors.push(`${where}: offset must be an even non-negative byte offset`);
-				continue;
 			}
-			if (this.blocks.has(name)) {
-				errors.push(`${where}: duplicated block name ${name}`);
-				continue;
-			}
-			if (this.scope === undefined) continue;
-			let found;
-			try {
-				found = this.scope.get_layout(layout);
-			} catch (error) {
-				errors.push(`${where}: ${error.message}`);
-				continue;
-			}
-			const block = found.create_ldata(name);
+		}
+	}
+
+	/** Attaches every loaded block to its unit, in the order of the entries; an overlap is the error of `attach_unit`. */
+	#attach_blocks(entries, ldata, errors) {
+		for (const { entry: { name, unit_id, start = 0, offset = 0 }, where } of entries) {
+			const block = ldata[name];
 			this.blocks.set(name, block);
 			try {
 				this.unit_map.attach_unit(unit_id, block, start, offset);
