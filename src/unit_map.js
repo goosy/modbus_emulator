@@ -1,7 +1,7 @@
 // The unit map that places data blocks at unit ids and byte offsets, and the
 // es-modbus server handler that serves them. Writes go through the Ldata
 // write methods, so that changes are detected or notified by the Ldata; reads
-// go through read_bytes. The bytes of a Ldata are never reached directly.
+// go through read_bytes and read_bit. The bytes of a Ldata are never reached directly.
 
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
@@ -172,7 +172,7 @@ export function create_handler(unit_map) {
 				report_unmapped("coil", addr, unit_id);
 				return false;
 			}
-			return (block.read_bytes(offset, 1)[0] & bit_mask) > 0;
+			return block.read_bit(offset, bit_mask);
 		},
 
 		// one FC 1 / FC 2 request: one read_bit per coil, one access per block naming the Bools read
