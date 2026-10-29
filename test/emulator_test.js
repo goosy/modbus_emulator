@@ -1,19 +1,13 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import { mkdtempSync, writeFileSync } from "node:fs";
 import net from "node:net";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
-import { Modbus_Emulator, Ldata, Ltag, create_scope, get_scope, yaml_file } from "../src/index.js";
+import { Modbus_Emulator, Ldata, Ltag, create_scope, get_scope, yaml } from "../src/index.js";
 import { HOST, hold_port, listening_port } from "./helpers.js";
 
-const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-"));
-let file_seq = 0;
-
 const LAYOUTS = `
-layouts: [PUMP, SETTING]
+layouts: [PUMP, SETTING, ONE]
 item_tables:
   PUMP:
     - { name: id, type: UInt, offset: 0, init_value: 7 }
@@ -27,24 +21,38 @@ item_tables:
   SETTING:
     - { name: limit, type: UInt, offset: 0, init_value: 100 }
     - { name: spare, type: UInt, offset: 16, init_value: 0 }
+  ONE:
+    - { name: a, type: UInt, offset: 0, init_value: 5 }
 `;
 
-/** Writes an emulator file and returns its path. */
-function write_file(text) {
-	const file = join(dir, `emulator_${++file_seq}.yaml`);
-	writeFileSync(file, text);
-	return file;
+// The package uses one scope per process: the first emulator of this file binds it (the scope named from
+// the time is tested in default_scope_test.js, the reuse of the layouts in layout_test.js)
+const SCOPE = "emulator_test";
+
+/** A description of the layouts above with the blocks and servers of a test. */
+const describe_blocks = (blocks_and_servers) => yaml(`${LAYOUTS}\n${blocks_and_servers}`);
+
+/**
+ * Gives the block names of descriptions back to their layouts: a layout holds the names of its blocks, and the
+ * tests of this file reuse them.
+ */
+function release(descriptions) {
+	const scope = get_scope(SCOPE);
+	for (const { blocks } of [descriptions].flat()) {
+		for (const { name, layout } of blocks) scope?.get_layout(layout).delete_ldata(name);
+	}
 }
 
-// The package uses one scope per process: every layout of this file is registered here, in the scope
-// the caller made, and the descriptions below only name them (layout registration is tested in layout_test.js)
-const SCOPE = "emulator_test";
-create_scope(SCOPE).register_layout([
-	yaml_file(write_file(LAYOUTS)),
-	{ layouts: ["ONE"], item_tables: { ONE: [{ name: "a", type: "UInt", offset: 0, init_value: 5 }] } },
-]);
+/** Constructs an emulator of descriptions in SCOPE, then gives their block names back. */
+function construct(descriptions) {
+	try {
+		return new Modbus_Emulator(descriptions, SCOPE);
+	} finally {
+		release(descriptions);
+	}
+}
 
-const make = (blocks_and_servers, options) => new Modbus_Emulator(write_file(`scope: ${SCOPE}\n${blocks_and_servers}`), options);
+const make = (blocks_and_servers) => construct(describe_blocks(blocks_and_servers));
 
 const errors_of = (blocks_and_servers) => {
 	try {
@@ -76,43 +84,39 @@ servers:
 		assert.deepEqual(emulator.servers.map((server) => server.protocol), ["tcp", "rtu_over_tcp", "rtu"]);
 	});
 
-	test("a block without a name is named after its unit", () => {
-		const emulator = make(`
+	test("a block without a name is an error of the compilation, not named after its unit", () => {
+		assert.throws(() => describe_blocks(`
 blocks:
   - { unit_id: 3, layout: PUMP }
 servers:
   - { protocol: tcp, port: 1502 }
-`);
-
-		assert.ok(emulator.block("unit_3"));
+`), (e) => e.errors.length === 1 && /name/.test(e.errors[0]));
 	});
 
 	test("reports every violation at once", () => {
 		const errors = errors_of(`
 blocks:
   - { name: a, unit_id: 300, layout: PUMP }
-  - { name: b, unit_id: 1, layout: NONE }
+  - { name: b, unit_id: 1, layout: PUMP }
   - { name: c, unit_id: 1, layout: PUMP, start: 3 }
-  - { name: d, unit_id: 1, layout: PUMP }
-  - { name: d, unit_id: 2, layout: PUMP }
 servers:
   - { protocol: udp, port: 1 }
   - { protocol: rtu, port: 5 }
   - { protocol: tcp, port: abc }
 `);
 
-		assert.equal(errors.length, 7, JSON.stringify(errors));
+		assert.equal(errors.length, 5, JSON.stringify(errors));
 		assert.match(errors[0], /servers\[0\]: protocol must be one of/);
+		assert.match(errors.join("\n"), /servers\[1\]: port must be a serial device path/);
+		assert.match(errors.join("\n"), /servers\[2\]: port must be a TCP port number/);
 		assert.match(errors.join("\n"), /blocks\[0\]: unit_id/);
-		assert.match(errors.join("\n"), /blocks\[1\]: unknown layout emulator_test\.NONE/);
 		assert.match(errors.join("\n"), /blocks\[2\]: start must be an even/);
-		assert.match(errors.join("\n"), /blocks\[4\]: duplicated block name d/);
 	});
 
-	test("a block name that is not a string and invalid serial settings are reported with the others", () => {
+	test("invalid serial settings are reported with the others", () => {
 		const errors = errors_of(`
 blocks:
-  - { name: 123, unit_id: 1, layout: PUMP }
+  - { name: a, unit_id: 1, layout: PUMP }
   - { name: b, unit_id: 300, layout: PUMP }
 servers:
   - { protocol: rtu, port: COM_TEST, baud_rate: -1, parity: mark, data_bits: 9, stop_bits: 3 }
@@ -124,7 +128,6 @@ servers:
 			"servers[0]: parity must be one of none, odd, even",
 			"servers[0]: data_bits must be one of 5, 6, 7, 8",
 			"servers[0]: stop_bits must be one of 1, 1.5, 2",
-			"blocks[0]: name must be a non-empty string",
 			"blocks[1]: unit_id must be an integer from 0 to 255",
 		]);
 	});
@@ -178,14 +181,18 @@ servers:
   - { protocol: tcp, port: 1502, unit_ids: [] }
   - { protocol: tcp, port: 1503, unit_ids: 1 }
   - { protocol: tcp, port: 1504, unit_ids: [256] }
-  - { protocol: tcp, port: 1505, unit_ids: [1, 7] }
 `);
 
-		assert.equal(errors.length, 4, JSON.stringify(errors));
+		assert.equal(errors.length, 3, JSON.stringify(errors));
 		assert.match(errors.join("\n"), /servers\[0\]: unit_ids must be a non-empty list/);
 		assert.match(errors.join("\n"), /servers\[1\]: unit_ids must be a non-empty list/);
 		assert.match(errors.join("\n"), /servers\[2\]: unit_ids must be a non-empty list/);
-		assert.match(errors.join("\n"), /servers\[3\]: unit_ids has unit 7, which has no block/);
+		assert.deepEqual(errors_of(`
+blocks:
+  - { name: a, unit_id: 1, layout: PUMP }
+servers:
+  - { protocol: tcp, port: 1505, unit_ids: [1, 7] }
+`), ["servers[0]: unit_ids has unit 7, which has no block"]);
 	});
 
 	test("the blocks of one unit may not overlap", () => {
@@ -276,20 +283,20 @@ servers:
 		assert.equal(emulator.servers.length, 4);
 	});
 
-	test("a file that cannot be read is reported in errors", () => {
-		const missing = join(dir, "missing.yaml");
-		const file = write_file(`
-blocks:
-  - { name: a, unit_id: 1, layout: PUMP }
-servers:
-  - { protocol: tcp, port: 1502 }
-`);
-
-		// the error of yaml_file names the file
-		for (const descriptions of [missing, [file, missing]]) {
-			assert.throws(() => new Modbus_Emulator(descriptions), (e) => e.errors.length === 1
-				&& e.errors[0].startsWith("ENOENT") && e.errors[0].includes(missing));
+	test("an item that is not a Description is an error: a path, or a plain object", () => {
+		for (const item of ["emulator.yaml", null]) {
+			assert.throws(() => new Modbus_Emulator(item, SCOPE), (e) => {
+				assert.deepEqual(e.errors, ["not a Description: compile it with desc_file or yaml"]);
+				return true;
+			});
 		}
+		// a plain object of the shape of a Description passes the checks of the package, and the load rejects it
+		const plain = { layouts: {}, blocks: [{ name: "a", unit_id: 1, layout: "ONE" }], servers: [{ protocol: "tcp", port: 1502 }] };
+		assert.throws(() => new Modbus_Emulator(plain, SCOPE), (e) => {
+			assert.equal(e.errors.length, 1, JSON.stringify(e.errors));
+			assert.match(e.errors[0], /Description/);
+			return true;
+		});
 	});
 
 	test("blocks and servers are required", () => {
@@ -298,13 +305,66 @@ servers:
 			"the root key `blocks` must be a non-empty list",
 		]);
 	});
+
+	test("the errors of the load are collected; a failed check loads nothing", () => {
+		const SERVERS = "servers:\n  - { protocol: tcp, port: 1502 }";
+		const held = describe_blocks(`blocks:\n  - { name: held, unit_id: 1, layout: PUMP }\n${SERVERS}`);
+		new Modbus_Emulator(held, SCOPE);
+		try {
+			assert.throws(() => construct(held), (e) => {
+				assert.equal(e.errors.length, 1, JSON.stringify(e.errors));
+				assert.match(e.errors[0], /held/);
+				return true;
+			});
+		} finally {
+			release(held);
+		}
+
+		assert.throws(() => make(`blocks:\n  - { name: unloaded, unit_id: 300, layout: PUMP }\n${SERVERS}`));
+		assert.throws(() => get_scope(SCOPE).get_layout("PUMP").get_ldata("unloaded"));
+	});
+});
+
+describe("Modbus_Emulator descriptions", () => {
+	const SERVERS = yaml("servers:\n  - { protocol: tcp, port: 1502 }");
+
+	test("several descriptions are joined in order and loaded together", () => {
+		const pumps = describe_blocks("blocks:\n  - { name: pump_1, unit_id: 1, layout: PUMP }");
+		const ones = describe_blocks("blocks:\n  - { name: one, unit_id: 2, layout: ONE }");
+		const emulator = construct([pumps, ones, SERVERS]);
+
+		assert.deepEqual([...emulator.blocks.keys()], ["pump_1", "one"]);
+		assert.equal(emulator.block("pump_1").id, 7);
+		assert.equal(emulator.block("one").a, 5);
+		assert.equal(emulator.servers.length, 1);
+	});
+
+	test("with several descriptions an error of this package names its description", () => {
+		const bad = describe_blocks("blocks:\n  - { name: x, unit_id: 300, layout: PUMP }");
+		assert.throws(() => construct([SERVERS, bad]), (e) => {
+			assert.deepEqual(e.errors, ["description #2: blocks[0]: unit_id must be an integer from 0 to 255"]);
+			return true;
+		});
+	});
+
+	test("an object of the shape of a description is compiled with yaml and JSON", () => {
+		const object = {
+			layouts: ["ONE"],
+			item_tables: { ONE: [{ name: "a", type: "UInt", offset: 0, init_value: 5 }] },
+			blocks: [{ name: "one", unit_id: 4, layout: "ONE" }],
+			servers: [{ protocol: "tcp", port: 1502 }],
+		};
+		const emulator = construct(yaml(JSON.stringify(object)));
+
+		assert.equal(emulator.block("one").a, 5);
+		assert.deepEqual(emulator.unit_map.unit_ids, [4]);
+	});
 });
 
 describe("Modbus_Emulator scope", () => {
-	const BLOCKS = [{ name: "one", unit_id: 4, layout: "ONE" }];
-	const SERVERS = [{ protocol: "tcp", port: 1502 }];
+	const ONE = "blocks:\n  - { name: one, unit_id: 4, layout: ONE }\nservers:\n  - { protocol: tcp, port: 1502 }";
 
-	test("the blocks are created from the layouts of the scope the description names", () => {
+	test("the blocks are created from the layouts loaded into the scope", () => {
 		const emulator = make(`
 blocks:
   - { name: pump, unit_id: 1, layout: PUMP }
@@ -314,10 +374,10 @@ servers:
 
 		assert.equal(emulator.scope, get_scope(SCOPE));
 		assert.equal(emulator.block("pump").layout, emulator.scope.get_layout("PUMP"));
-		assert.deepEqual(emulator.layouts, {});
+		assert.deepEqual(Object.keys(emulator.layouts), ["PUMP", "SETTING", "ONE"]);
 	});
 
-	test("root keys other than layouts and item_tables carry no layouts and are not used", () => {
+	test("root keys of no use to the package are not used", () => {
 		const emulator = make(`
 x-common: &pump PUMP
 blocks:
@@ -327,55 +387,36 @@ servers:
 `);
 
 		assert.equal(emulator.block("pump").layout, emulator.scope.get_layout("PUMP"));
-		assert.deepEqual(emulator.layouts, {});
 	});
 
-	test("a description without scope takes the scope the package is bound to", () => {
-		const emulator = new Modbus_Emulator({ blocks: BLOCKS, servers: SERVERS });
-
-		assert.equal(emulator.scope, get_scope(SCOPE));
-		assert.equal(emulator.block("one").a, 5);
+	test("an emulator given no scope takes the scope the package is bound to", () => {
+		const description = describe_blocks(ONE);
+		try {
+			const emulator = new Modbus_Emulator(description);
+			assert.equal(emulator.scope, get_scope(SCOPE));
+			assert.equal(emulator.block("one").a, 5);
+		} finally {
+			release(description);
+		}
 	});
 
 	test("the package uses one scope: another name is an error", () => {
 		assert.throws(
-			() => new Modbus_Emulator({ scope: "other", blocks: BLOCKS, servers: SERVERS }),
+			() => new Modbus_Emulator(describe_blocks(ONE), "other"),
 			(e) => { assert.deepEqual(e.errors, [`scope other: the package uses scope ${SCOPE}`]); return true; },
 		);
 		assert.equal(get_scope("other"), undefined);
 	});
-
-	test("a scope that is not a string is an error", () => {
-		assert.throws(
-			() => new Modbus_Emulator({ scope: 1, blocks: BLOCKS, servers: SERVERS }),
-			(e) => { assert.deepEqual(e.errors, ["scope must be a string"]); return true; },
-		);
-	});
-});
-
-describe("Modbus_Emulator object description", () => {
-	const SERVERS = [{ protocol: "tcp", port: 1502 }];
-
-	test("takes the description as an object", () => {
-		const emulator = new Modbus_Emulator({
-			scope: SCOPE,
-			blocks: [{ name: "one", unit_id: 4, layout: "ONE" }],
-			servers: SERVERS,
-		});
-
-		assert.equal(emulator.block("one").a, 5);
-		assert.deepEqual(emulator.unit_map.unit_ids, [4]);
-	});
 });
 
 describe("Modbus_Emulator service", () => {
-	async function start(t, options) {
+	async function start(t) {
 		const emulator = make(`
 blocks:
   - { name: pump, unit_id: 1, layout: PUMP }
 servers:
   - { protocol: tcp, host: ${HOST}, port: 0 }
-`, options);
+`);
 		await emulator.start();
 		t.after(() => emulator.stop());
 		const port = listening_port(emulator.servers[0]);

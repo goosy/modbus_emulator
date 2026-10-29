@@ -20,7 +20,7 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 
 ## 3. 地址映射
 
-- 布局和数据块是静态的：描述文件在构造时一次读入，数据块（Ldata）和单元表建好后不再增删或改变布局；运行中的服务只关心数值，不处理数据块的变更；
+- 布局和数据块是静态的：描述在构造时一次装入，数据块（Ldata）和单元表建好后不再增删或改变布局；运行中的服务只关心数值，不处理数据块的变更；
 
 - 寄存器 `addr` 对应单元内的字节 `addr * 2`，按大端读写数据块的内容；
 - 线圈 `addr` 对应字节 `addr >> 3` 的第 `addr % 8` 位；
@@ -35,19 +35,20 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 
 ## 4. 接口
 
-- `Modbus_Emulator(descriptions)`：主构造方法，`descriptions` 是描述文件的路径（§5），或描述文件的路径列表，一并读取；描述给出布局、要建立的数据块和服务的参数，构造方法据此建立数据块和服务；
-  - `blocks`：数据块名到 Ldata 的映射；`block(name)` 取得一个数据块；`unit_map`：单元表；`servers`：服务实例，一个数组，第 `i` 项对应描述（各文件按顺序连接后）中的第 `i` 个服务条目；每个服务的 `name` 是它的标签，即它在描述中的位置和地址，如 `servers[1] (modbus://0.0.0.0:503)`，因此可以按名称查找（`servers.find((server) => server.name === ...)`）；`scope`：数据块所用的 layout-data 登记域，即描述指定的那个（只读）；`layouts`：模拟器注册的布局（按名称，只读），描述不带布局时为空；`handler`：全部服务共用的 handler；`warnings`：构造时发现的诊断信息（字符串），构造函数返回前无法挂监听器，所以收在这里；没有时为空；
+- `Modbus_Emulator(descriptions, scope)`：主构造方法，`descriptions` 是 layout-data 的 `Description`（§5），或其列表，与登记域 `load` 的参数相同，原样交给它。调用方用本包转发的 `desc_file` 编译描述文件，或用 `yaml` 编译 YAML 文本；本包不读取文件，路径和普通对象都不是描述。描述给出布局、要建立的数据块和服务的参数，构造方法据此建立数据块和服务。`scope`（可选）是 layout-data 登记域的名称（见下文“布局登记域”）；
+  - 与描述结构相同的对象用 `yaml(JSON.stringify(object))` 编译，因为 JSON 是 YAML 1.2 的子集。YAML 文本没有所在文件，其 `imports` 要写绝对路径或 `file:` URL；
+  - `blocks`：数据块名到 Ldata 的映射；`block(name)` 取得一个数据块；`unit_map`：单元表；`servers`：服务实例，一个数组，第 `i` 项对应描述（按顺序连接后）中的第 `i` 个服务条目；每个服务的 `name` 是它的标签，即它在描述中的位置和地址，如 `servers[1] (modbus://0.0.0.0:503)`，因此可以按名称查找（`servers.find((server) => server.name === ...)`）；`scope`：描述装入的 layout-data 登记域，即本包的登记域（只读）；`layouts`：描述的布局（按名称，只读）；`handler`：全部服务共用的 handler；`warnings`：构造时发现的诊断信息（字符串），构造函数返回前无法挂监听器，所以收在这里；没有时为空；
   - `start(options)`：启动全部服务。缺省为全部或全部不：任一服务启动失败时停掉全部服务，因此 `start()` 成功即全部在运行，失败即全部已停止；`{ partial: true }` 时尽力启动，已启动的服务保持运行。两种模式下有失败都以 `AggregateError` 拒绝，列出全部失败的服务：每项是一个 `Error`，消息以服务的 `name` 开头，如 `servers[1] (modbus://0.0.0.0:503): ...`，原始错误放在 `cause`；
   - `stop()`：停止全部服务；
-  - 布局登记域：本包在每个进程中只使用一个 layout-data 登记域，由描述指定（`scope`，§5；省略时用时间构成名称）；数据块的全部布局都属于它。第一个取得登记域的模拟器把本包绑定到这个名称，直到进程结束；之后的描述指定其他登记域是错误。这个登记域使本包的布局与调用方、其他使用 layout-data 的库的登记域互不相干。它的布局只注册一次（注册失败不会用掉这一次）。带有布局（`layouts` 或 `item_tables`）的描述在构造时把它们注册到该登记域，登记域不存在时先创建：布局注册成功后，这份描述在该进程中就只能构造这一次，不论之后构造成功还是失败；描述有误时，改正后重启进程。不带布局的描述使用该登记域中已注册的布局，由调用方事先注册（用本包转发的 `create_scope`，YAML 描述再配合 `yaml` / `yaml_file`），或由先前的模拟器注册：这样的描述可以构造任意多次，用于在同一进程中运行多个模拟器，或不动布局只重建模拟器（如换端口、主机）；
-  - 描述文件不合法时抛出 `Error`，其 `errors` 属性列出全部违规项；文件无法读取也是其中一项。
+  - 布局登记域：本包在每个进程中只使用一个 layout-data 登记域，由参数 `scope` 指定；数据块的全部布局都属于它。省略 `scope` 时，模拟器使用本包已绑定的登记域；尚未绑定时，用当前的 UTC 时间构成名称：`s` 加上从年到毫秒的数字，如 `s20261027004920133`。名称不是标识符时是 `create_scope` 的错误。第一个装入描述的模拟器把本包绑定到这个登记域，直到进程结束；之后的模拟器给出其他名称是错误。这个登记域使本包的布局与调用方、其他使用 layout-data 的库的登记域互不相干，不存在时创建。描述由登记域的 `load` 装入：它注册描述的布局，名称与结构都相同的布局复用（同名而结构不同、或结构相同而名称不同是错误），并建立数据块的 Ldata。布局持有其 Ldata 的名称，所以一个布局的一个数据块名在进程中只能装入一次，不论之后构造成功还是失败；描述有误时，改正后重启进程。在同一进程中运行多个模拟器，或不动布局只重建模拟器（如换端口、主机），要用其他数据块名；
+  - 描述不合法时抛出 `Error`，其 `errors` 属性列出全部违规项：本包的，以及登记域 `load` 的；列表项不是 `Description` 也是其中一项。读取和编译的错误由 `desc_file` 和 `yaml` 抛出，它们指明文件。本包的检查在装入之前：检查失败时，登记域中什么都不装入。
 - `create_tcp_server(unit_map, { host, port, rtu, unit_ids, handler, name })`：创建 Modbus TCP 服务，`host` 缺省 `0.0.0.0`、`port` 缺省 502，`unit_map` 必填；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, name })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
 - `name`：可选，`Modbus_Server` 的 `name`，在事件和错误中标明服务；es-modbus 的缺省值为 `Modbus_Server`；
-- `Unit_Map` / `create_handler(unit_map)`：单元表和 es-modbus 的服务端 handler，供不用描述文件的调用方（如控制器）自行组装。
+- `Unit_Map` / `create_handler(unit_map)`：单元表和 es-modbus 的服务端 handler，供不用描述的调用方（如控制器）自行组装。
   - `attach_unit(unit_id, block, start, offset)` 把数据块从其字节 `offset` 起放到单元的字节 `start` 处；两者缺省为 0，须为偶数非负整数，否则抛出 `RangeError`；同一单元内各数据块的字节区间不得重叠，重叠时抛出 `Error`，指明两个数据块；
   - `unit_ids`：有数据块的单元，按首次挂载的顺序；`segments(unit_id)`：单元的字节区间（`{ block, start, offset, end }`），按 `start` 排序，没有数据块的单元为空；`resolve(unit_id, byte)`：单元中某个字节所在的数据块及块内字节偏移（`{ block, offset }`），未映射时为 null。
-- `Ldata`、`Ltag`、`create_scope`、`get_scope`、`yaml`、`yaml_file`，以及与之相配的 layout-data 类型（`Layout`、`Layout_Scope`、`Layout_Tag`、`Layout_Item`、`Tag_Item`、`Include_Item`、`Layout_Description`、`Registered_Layouts`、`Endian`、`Tag_Type`）：调用方用到的 [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md) 接口，原样转发。查找布局、`create_ldata`、`io_index_table` 是登记域或布局的方法。`register_layout` 只接受描述对象：`yaml` 和 `yaml_file` 分别由 YAML 文本和描述文件生成描述对象。数据块就是 `Ldata` 对象，所以调用方只从本包取得这些接口，不再自己依赖 layout-data，进程里也只有一份（登记域需要这一点：两份 layout-data 互不共享登记域，一份的 `get_scope` 找不到另一份的登记域）。转发的接口随本包所依赖的 layout-data 版本而变。
+- `Ldata`、`Ltag`、`create_scope`、`get_scope`、`yaml`、`desc_file`，以及与之相配的 layout-data 类型（`Layout`、`Layout_Scope`、`Layout_Tag`、`Layout_Desc`、`Block_Desc`、`Description`、`Registration`、`Endian`、`Tag_Type`）：调用方用到的 [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md) 接口，原样转发。`load`、查找布局、`create_ldata`、`get_ldata`、`delete_ldata`、`io_index_table` 是登记域或布局的方法。`load` 只接受编译好的描述：`yaml` 和 `desc_file` 分别编译 YAML 文本和描述文件。数据块就是 `Ldata` 对象，所以调用方只从本包取得这些接口，不再自己依赖 layout-data，进程里也只有一份（登记域需要这一点：两份 layout-data 互不共享登记域，一份的 `get_scope` 找不到另一份的登记域）。转发的接口随本包所依赖的 layout-data 版本而变。
 - `unit_ids`：可选，该服务应答的单元号列表，省略时，工厂在创建服务时复制 `unit_map` 中的单元号；此后这个列表属于服务，与单元表相互独立：`attach_unit` 只改变单元表，与服务应答哪些单元没有任何关系。要给服务增加（或去掉）单元，调用其 `Modbus_Server` 的 `set_unit_ids`；列表外的单元号由 es-modbus 应答异常码 0x0B；
 - `handler`：可选，要服务的 handler（`create_handler` 的结果）；同一个单元表的多个服务可以共用一个，缺省时由单元表建立；
 
@@ -67,16 +68,13 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - handler 抛出异常或返回无效值（批量读的长度不符、寄存器值越界）时，由 es-modbus 作为 `handler_error` 报告，主站收到异常码 0x04。
 - `Modbus_Emulator` 是 `EventEmitter`：把每个服务的事件 `<name>` 转发为 `server_<name>`（`server_start`、`server_stop`、`server_socket_connect`、`server_socket_disconnect`、`server_socket_error`、`server_error`、`server_handler_error`、`server_receive`、`server_send`），载荷为 `{ server }`，es-modbus 带有参数时再加 `socket`、`error` 或 `frame`；由 `server.name` 得知来自哪个服务。handler 的事件按原名、原载荷转发。模拟器始终监听其服务的 `error`，自身从不发出 `error`。
 
-## 5. 描述文件
+## 5. 描述
 
-一个 YAML 1.2 文件，含三部分，外加登记域。这三部分也可以分写在多个文件里（`descriptions` 列表）：各文件的 `blocks` 和 `servers` 按文件顺序连接，全部文件的布局一并注册到同一个登记域，出错信息会指明所在文件。
+layout-data 的描述（见 [spec-description](https://github.com/goosy/layout-data/blob/main/doc/spec-description.md)），写在 YAML 1.2 文件或文本中，由 `desc_file` 或 `yaml` 编译，外加本包的根键 `servers`。它含三部分。这三部分也可以分写在多个描述里（`descriptions` 列表）：各描述的 `blocks` 和 `servers` 按列表顺序连接，全部描述一并装入登记域；有多个描述时，本包的出错信息以 `description #N: ` 开头，与 layout-data 对列表项的称呼相同。
 
-文件的根键有 `scope`、`blocks`、`servers`，以及 layout-data 的布局描述（`layouts`，即布局名列表，以及 `item_tables`，即按名称给出的条目表，见 [spec-description](https://github.com/goosy/layout-data/blob/main/doc/spec-description.md)）。`scope`、`blocks` 和 `servers` 属于本包；`layouts` 和 `item_tables` 是布局描述。文件原样交给 layout-data，它只读取 `layouts` 和 `item_tables`。给出 `layouts` 或 `item_tables` 的文件带有布局。
+layout-data 读取 `imports`（引入其条目表的描述文件）、`layouts`（布局名列表）、`item_tables`（按名称给出的条目表）和 `blocks`，数据块条目中它读取 `name` 和 `layout`，条目的其他键属于本包。描述是自包含的：数据块引用本描述 `layouts` 列出的布局，其条目表可以来自 `imports` 中的文件。描述不指定登记域（§4）。
 
 ```yaml
-# the layout-data scope of the layouts and the blocks
-scope: plant_a
-
 # 1. layouts and item tables, in the format of layout-data
 layouts: [PUMP]
 item_tables:
@@ -96,13 +94,12 @@ servers:
   - { protocol: rtu, port: COM3, baud_rate: 9600, parity: none }
 ```
 
-- `blocks[].name` 为非空字符串，缺省为 `unit_<unit_id>`，数据块名不得重复；同一单元内各数据块的字节区间不得重叠；`offset`（可选）为数据块内的起始字节，须为偶数；
+- `blocks[].name` 必须写明，是其布局的其他数据块未用过的字符串（layout-data）；`blocks[].layout` 是同一描述中的布局名；同一单元内各数据块的字节区间不得重叠；`offset`（可选）为数据块内的起始字节，须为偶数；
 - `servers[].protocol` 取 `tcp`、`rtu_over_tcp`、`rtu`；`tcp` 和 `rtu_over_tcp` 的 `host` 缺省 `0.0.0.0`、`port` 缺省 502，`port` 为 0..65535 的整数（0 表示由系统分配）；`rtu` 的 `port` 为串口路径，可带 `baud_rate`（正整数，缺省 9600）、`parity`（`none`、`odd` 或 `even`，缺省 `none`）、`data_bits`（5、6、7 或 8，缺省 8）、`stop_bits`（1、1.5 或 2，缺省 1）；
 - 两个 `tcp` / `rtu_over_tcp` 服务不得使用相同的 `host` 和 `port`（端口 0 除外），不同 `host` 可用同一端口；两个 `rtu` 服务不得使用同一串口路径；
-- 数据块条目只有 `name`、`unit_id`、`layout`、`start`、`offset` 这些键；服务条目只有 `protocol`、`unit_ids`，以及 `tcp` / `rtu_over_tcp` 的 `host`、`port` 或 `rtu` 的 `port`、`baud_rate`、`parity`、`data_bits`、`stop_bits`；其他键是错误。根键不检查：`scope`、`blocks`、`servers`、`layouts`、`item_tables` 以外的键不被使用，可以存放任何内容（如 YAML 锚点）；
-- `scope`（可选）：本包所用 layout-data 登记域的名称，为 JavaScript 标识符。有多个文件时，可以写在其中任意文件里，写了的文件必须给出同一个名称。本包已绑定登记域后（§4），其他名称是错误。所有文件都没有给出时，描述使用本包已绑定的登记域；本包尚未绑定时，用当前的 UTC 时间构成名称：`s` 加上从年到毫秒的数字，如 `s20261027004920133`。这样的登记域此前并不存在，所以本包绑定之前，既不带布局也不写 `scope` 的描述会因登记域不存在而失败。描述带有布局时，布局注册到该登记域，登记域不存在时先创建；该登记域已注册过布局是错误。描述不带布局时，该登记域必须已存在，数据块使用它的布局。`blocks[].layout` 是该登记域中的布局名；
+- 数据块条目只有 `name`、`unit_id`、`layout`、`start`、`offset` 这些键；服务条目只有 `protocol`、`unit_ids`，以及 `tcp` / `rtu_over_tcp` 的 `host`、`port` 或 `rtu` 的 `port`、`baud_rate`、`parity`、`data_bits`、`stop_bits`；其他键是错误。根键不检查：`imports`、`layouts`、`item_tables`、`blocks`、`servers` 以外的键不被使用，可以存放任何内容（如 YAML 锚点）；
 - `servers[].unit_ids`（可选）：该服务应答的单元号，非空整数列表，取值 0..255，且每个单元号必须有数据块；缺省应答全部单元；
-- 布局可以不写在某个描述文件里，或分开写：布局描述文件与其他文件一样是 `descriptions` 列表的一项，全部文件的布局一并注册到登记域（同名重复定义是错误）；所有文件都没有给出布局时，数据块使用登记域中已经注册的布局；
+- 条目表可以不写在描述里：描述用 `imports` 引入它们，并在 `layouts` 中列出自己的布局；列表中各描述列出的同名同结构的布局共用一个；
 - 所有服务共用同一个单元表和同一组数据块，`unit_ids` 只决定各服务应答哪些单元。
 
 ## 6. 发布形态

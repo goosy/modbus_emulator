@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
-import { Unit_Map, create_handler, create_tcp_server, create_scope } from "../src/index.js";
+import { Unit_Map, create_handler, create_tcp_server, create_scope, yaml } from "../src/index.js";
 import { HOST, listening_port } from "./helpers.js";
 
 // The batch methods of the handler over real Ldata, whose transactions, events and `access`
@@ -11,18 +11,16 @@ const UNIT = 1;
 
 // 8 bytes: registers 0..3 of a block; its Bools are coils 48, 49 and 63 of the block
 const scope = create_scope("batch_test");
-scope.register_layout({
-	layouts: ["BLOCK"],
-	item_tables: {
-		BLOCK: [
-			{ name: "r", type: "Real", offset: 0, init_value: 1.5 },
-			{ name: "n", type: "UInt", offset: 32, init_value: 7 },
-			{ name: "c0", type: "Bool", offset: 48, init_value: false },
-			{ name: "c1", type: "Bool", offset: 49, init_value: false },
-			{ name: "c2", type: "Bool", offset: 63, init_value: false },
-		],
-	},
-});
+scope.load(yaml`
+layouts: [BLOCK]
+item_tables:
+  BLOCK:
+    - { name: r, type: Real, offset: 0, init_value: 1.5 }
+    - { name: n, type: UInt, offset: 32, init_value: 7 }
+    - { name: c0, type: Bool, offset: 48, init_value: false }
+    - { name: c1, type: Bool, offset: 49, init_value: false }
+    - { name: c2, type: Bool, offset: 63, init_value: false }
+`);
 
 /**
  * Two blocks side by side in one unit: `a` at registers 0..3 (coils 0..63), `b` at registers 4..7
@@ -30,6 +28,9 @@ scope.register_layout({
  */
 function make_unit() {
 	const layout = scope.get_layout("BLOCK");
+	// the names are given back by the unit of the previous test
+	layout.delete_ldata("a");
+	layout.delete_ldata("b");
 	const a = layout.create_ldata("a");
 	const b = layout.create_ldata("b");
 	const unit_map = new Unit_Map();
