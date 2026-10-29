@@ -21,10 +21,6 @@ Dependencies:
   - The application that uses it bundles it once, which drops the unused `Modbus_Client` and keeps one copy of the shared code and one `prebuilds` directory of the serial port bindings (they are found next to the bundle that holds them, in the `prebuilds` directory of es-modbus when it is installed as a package).
   - `Modbus_Server` is declared in `src/index.d.ts` as the small interface that callers use, because es-modbus has no declarations.
 - Publishing: the package publishes `src` as is, with no build step. Bundling belongs to the application, so a bundle of this package would only join its own source files.
-- Versions and co-development:
-  - `layout-data` is pinned to a published version.
-  - To co-develop with an unpublished version of a dependency (layout-data, es-modbus), reference it temporarily through yalc (`file:.yalc/<name>`), which installs the published content like an ordinary dependency, and switch back to a version number before committing or publishing.
-  - Do not use pnpm `link:`: it resolves the dependency from its own repository, so a caller ends up with two instances of the same module.
 
 ## 2. Unit_Map and the Handler
 
