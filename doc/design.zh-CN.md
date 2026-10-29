@@ -20,10 +20,6 @@
   - 使用本包的应用把它统一打包一次：未用到的 `Modbus_Client` 随之去掉，共用的代码只有一份，串口原生模块的 `prebuilds` 目录也只有一处（它们在持有它们的包旁边查找；作为包安装时就是 es-modbus 自己的 `prebuilds` 目录）。
   - `Modbus_Server` 在 `src/index.d.ts` 里声明为调用方用到的小接口，因为 es-modbus 没有类型声明。
 - 发布：本包原样发布 `src`，没有构建步骤。打包是应用的事，给本包打包只会把它自己的源文件合并起来。
-- 版本与联调：
-  - `layout-data` 锁定为已发布的版本号。
-  - 联调尚未发布的依赖（layout-data、es-modbus）时，只用 yalc 临时引用（`file:.yalc/<name>`），它按普通依赖安装发布内容；提交和发布前必须改回版本号。
-  - 不要用 pnpm 的 `link:`：它从依赖自己的仓库目录解析模块，会使调用方对同一个模块出现两个实例。
 
 ## 2. Unit_Map 与 handler
 
