@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
-import { Unit_Map } from "../src/index.js";
+import { Unit_Map } from "./target.js";
 
 /** A stand-in of a Ldata: the unit map only reads its size. */
 const block = (name, size) => ({ name, size });

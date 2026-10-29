@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
-import { Unit_Map, create_tcp_server, create_rtu_server, create_handler } from "../src/index.js";
+import { Unit_Map, create_tcp_server, create_rtu_server, create_handler } from "./target.js";
 import { HOST, listening_port } from "./helpers.js";
 
 const UNIT = 5;

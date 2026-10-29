@@ -4,7 +4,7 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { Modbus_Emulator } from "../src/index.js";
+import { Modbus_Emulator } from "./target.js";
 import { HOST, listening_port } from "./helpers.js";
 
 // An emulator loads descriptions any number of times, each load all or nothing, checked against what the

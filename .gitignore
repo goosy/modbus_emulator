@@ -25,6 +25,7 @@ yarn.lock
 /*-lock.yaml
 
 # production
+/dist
 .vscode/
 .vs/
 
