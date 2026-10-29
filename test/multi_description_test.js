@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { Modbus_Emulator } from "../src/index.js";
+import { Modbus_Emulator } from "./target.js";
 
 // Several description files are read and loaded together; a block names a layout of its own file
 const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-descriptions-"));

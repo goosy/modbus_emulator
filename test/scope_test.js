@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { Modbus_Emulator, desc_file, get_scope } from "../src/index.js";
+import { Modbus_Emulator, desc_file, get_scope } from "./target.js";
 
 // The scope is chosen in code: the descriptions are loaded into the scope of the name given, by default
 // modbus_emulator, where layout-data reuses a layout of the same structure and name; stop() gives the

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
-import { Unit_Map, create_handler, create_tcp_server, create_scope, yaml } from "../src/index.js";
+import { Unit_Map, create_handler, create_tcp_server, create_scope, yaml } from "./target.js";
 import { HOST, listening_port } from "./helpers.js";
 
 // The batch methods of the handler over real Ldata, whose transactions, events and `access`

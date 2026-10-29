@@ -11,15 +11,16 @@
 | `src/server.js` | `create_tcp_server`、`create_rtu_server` |
 | `src/emulator.js` | `Modbus_Emulator`：装入描述、建立数据块和服务 |
 | `src/index.d.ts` | 公开接口的类型声明（手写） |
+| `dist/index.js` / `dist/index.d.ts` | `src/index.js` 的打包文件和 `src/index.d.ts` 的副本，由构建生成（`rolldown.config.js`，第 5 节）；即发布的文件；不提交 |
 
 依赖：
 
-- `layout-data`（布局登记域与 Ldata）：运行时依赖，保持外部引用。数据块的 Ldata 对象会交到调用方手里，如果在这里打包一份，就会和调用方自己的那份并存，各有各的登记域。
+- `layout-data`（布局登记域与 Ldata）：运行时依赖，不打包。数据块的 Ldata 对象会交到调用方手里，如果在这里打包一份，就会和调用方自己的那份并存，各有各的登记域。
   - `src/index.js` 转发调用方用到的那部分接口（`export ... from "layout-data"`：`Ldata`、`Ltag`、`create_scope`、`get_scope`、`yaml`、`desc_file`；类型在 `src/index.d.ts`），调用方从本包导入，进程里就只有一份。其余的布局接口是登记域对象和布局对象的方法，不需要转发。
-- `es-modbus`：运行时依赖，保持外部引用。本包是给其他包依赖的，不是应用，所以不打包它。
+- `es-modbus`：运行时依赖，不打包。本包是给其他包依赖的，不是应用，所以不打包它。
   - 使用本包的应用把它统一打包一次：未用到的 `Modbus_Client` 随之去掉，共用的代码只有一份，串口原生模块的 `prebuilds` 目录也只有一处（它们在持有它们的包旁边查找；作为包安装时就是 es-modbus 自己的 `prebuilds` 目录）。
   - `Modbus_Server` 在 `src/index.d.ts` 里声明为调用方用到的小接口，因为 es-modbus 没有类型声明。
-- 发布：本包原样发布 `src`，没有构建步骤。打包是应用的事，给本包打包只会把它自己的源文件合并起来。
+- 发布：本包发布自身源文件的打包文件，依赖在其中保持为 `import`（第 5 节）。
 
 ## 2. Unit_Map 与 handler
 
@@ -57,5 +58,7 @@
 
 ## 5. 构建与测试
 
-- `pnpm test`：`node --test`；测试导入 `src`，即本包发布的内容；另有一个测试按包名导入本包，核对 `exports` 解析到 `src`；测试用 es-modbus 的 `Modbus_Client` 作主站；被测的 TCP 服务监听端口 0，测试读取系统选定的端口，避免探测与监听之间端口被其他进程占用；RTU 串口只测构造；
+- `pnpm build`：`rolldown -c`；`rolldown.config.js` 加载时清空 `dist`，把 `src/index.js` 打包为 `dist/index.js`（`platform: "node"`、`format: "es"`、单个文件）；`external` 是 `package.json` 的 `dependencies` 的包名（及其子路径）和带 `node:` 前缀的内置模块，所以 `layout-data` 和 `es-modbus` 在打包文件里保持为 `import`；配置中的一个插件把 `src/index.d.ts` 原样输出为 `dist/index.d.ts`，因为类型声明是手写的，不引用本包的其他文件；
+- 发布：`package.json` 的 `files` 是 `dist` 和 `CHANGELOG.md`；`exports` 的 `default` 指向 `dist/index.js`，`types` 指向 `dist/index.d.ts`；`prepare` 执行构建，所以从仓库或工作区安装后、打包发布前打包文件都已存在；
+- `pnpm test`：先构建，再执行 `node --test`（全部测试，针对 `src`）和 `pnpm test:dist`（全部测试再跑一遍，针对打包文件）；测试只用公开接口，从 `test/target.js` 取得：默认是 `src` 的入口；先导入 `test/dist.js` 时（`node --test --import ./test/dist.js`）则按包名导入本包，即 `dist` 里的打包文件，`dist.js` 设置环境变量 `MODBUS_EMULATOR_TEST_TARGET=dist`，传给各测试文件的进程；打包测试（`test/bundle_test.js`）核对 `exports` 指向 `dist` 的文件、打包文件导出的名字与 `src` 入口相同、其 `import` 只有 `layout-data`、`es-modbus` 和 `node:` 模块；测试用 es-modbus 的 `Modbus_Client` 作主站；被测的 TCP 服务监听端口 0，测试读取系统选定的端口，避免探测与监听之间端口被其他进程占用；RTU 串口只测构造；
 - `pnpm lint`：ESLint。

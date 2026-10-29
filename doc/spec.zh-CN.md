@@ -106,5 +106,6 @@ servers:
 
 ## 6. 发布形态
 
-- 以 ES 模块库发布，入口 `modbus-emulator`；依赖 `layout-data` 和 `es-modbus`，都保持外部引用：本包是给其他包依赖的，使用它的应用把它们统一打包一次；
+- 以 ES 模块库发布，入口 `modbus-emulator`；发布的是源码的打包文件（`dist/index.js`）及其类型声明；
+- 依赖 `layout-data` 和 `es-modbus`，都不打包，在打包文件里保持为 `import`：本包是给其他包依赖的，使用它的应用把它们统一打包一次；
 - Node.js >= 20.11。

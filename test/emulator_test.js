@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
-import { Modbus_Emulator, Ldata, Ltag, create_scope, get_scope, yaml } from "../src/index.js";
+import { Modbus_Emulator, Ldata, Ltag, create_scope, get_scope, yaml } from "./target.js";
 import { HOST, hold_port, listening_port } from "./helpers.js";
 
 const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-"));

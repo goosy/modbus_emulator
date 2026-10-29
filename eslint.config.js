@@ -5,8 +5,8 @@ import globals from "globals";
 // ESLint finds code problems; @stylistic normalizes whitespace without
 // re-wrapping lines, so hand-laid tables (e.g. the struct layouts) keep their layout.
 export default [
-	// yalc copies of dependencies
-	{ ignores: [".yalc"] },
+	// yalc copies of dependencies and the build output
+	{ ignores: [".yalc", "dist"] },
 	js.configs.recommended,
 	stylistic.configs.customize({
 		indent: "tab",

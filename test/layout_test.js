@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { Modbus_Emulator, get_scope } from "../src/index.js";
+import { Modbus_Emulator, get_scope } from "./target.js";
 
 // The layouts of the descriptions loaded into a scope: a layout error loads nothing, a layout file is
 // loaded with the other files, and layout-data reuses or refuses the layouts already in the scope

@@ -108,5 +108,6 @@ servers:
 
 ## 6. Distribution
 
-- Published as an ES module library with the entry `modbus-emulator`. It depends on `layout-data` and `es-modbus`, which stay external: the package is meant to be a dependency of other packages, and the application that uses it bundles them once.
+- Published as an ES module library with the entry `modbus-emulator`. What is published is the bundle of the source (`dist/index.js`) with its type declarations.
+- It depends on `layout-data` and `es-modbus`, which are not bundled and stay as `import`s in the bundle: the package is meant to be a dependency of other packages, and the application that uses it bundles them once.
 - Node.js >= 20.11.

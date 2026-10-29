@@ -5,12 +5,12 @@
 	"type": "module",
 	"exports": {
 		".": {
-			"types": "./src/index.d.ts",
-			"default": "./src/index.js"
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
 		}
 	},
 	"files": [
-		"src",
+		"dist",
 		"CHANGELOG.md"
 	],
 	"engines": {
@@ -24,11 +24,15 @@
 		"@eslint/js": "10.0.1",
 		"@stylistic/eslint-plugin": "5.10.0",
 		"eslint": "10.12.0",
-		"globals": "17.13.0"
+		"globals": "17.13.0",
+		"rolldown": "1.2.15"
 	},
 	"scripts": {
-		"test": "node --test",
-		"lint": "eslint ."
+		"build": "rolldown -c",
+		"test": "pnpm build && node --test && pnpm test:dist",
+		"test:dist": "node --test --import ./test/dist.js",
+		"lint": "eslint .",
+		"prepare": "pnpm build"
 	},
 	"keywords": [
 		"modbus",
