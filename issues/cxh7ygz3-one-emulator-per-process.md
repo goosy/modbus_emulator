@@ -2,27 +2,27 @@
 id: cxh7ygz3
 opened: 2026-10-17T23:58:20.000Z
 closed: 2026-10-24T16:18:10.000Z
-title: 布局注册每进程一次的约束未写入 spec
+title: The once-per-process layout registration constraint is not in the spec
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [6a67012]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-`register_layout` 每进程只能成功一次，这是 layout-data 的设计。由此，带有布局（`layouts` 或 `layouts_file`）的描述，每个进程只能构造一次模拟器，不论成功还是失败。spec 没有写出这一约束，也没有说明需要多个实例、或在同一进程内重建实例时该怎么做。
+`register_layout` can succeed only once per process; this is the design of layout-data. Consequently, a description with layouts (`layouts` or `layouts_file`) can construct an emulator only once per process, whether it succeeds or fails. The spec does not state this constraint, nor what to do when several instances are needed or an instance must be rebuilt within the same process.
 
-## 解决提案
+## Proposal
 
-在 spec（含中文版）中写明：
+State in the spec (including the Chinese version):
 
-- 带布局的描述，每个进程只能构造一次模拟器；描述有误时，改正后重启进程。
-- 需要在同一进程中运行多个模拟器，或不动布局只重建实例（如换端口、IP）时，让布局独立于实例：先用本包转发的 `register_layout` 单独注册全部布局，描述中不带布局、只引用布局名；这样的描述在同一进程中可以多次构造。
+- A description with layouts can construct an emulator only once per process; when the description is wrong, correct it and restart the process.
+- To run several emulators in one process, or to rebuild instances without touching the layouts (e.g. changing ports or IPs), make the layouts independent of the instances: first register all layouts separately with the `register_layout` this package re-exports, and let the descriptions carry no layouts and only reference layout names; such descriptions can be constructed several times in one process.
 
-## 裁定
+## Decision
 
-问题成立，按解决提案修复：spec（含中文版）写明带布局的描述每进程只能构造一次、出错改正后重启进程，以及单独注册布局、描述只引用布局名的用法；design 中“每进程一个模拟器”的说法一并改为准确的约束。
+The issue holds; fixed as proposed: the spec (including the Chinese version) states that a description with layouts can be constructed only once per process, that after an error it is corrected and the process restarted, and the usage of registering layouts separately with descriptions only referencing layout names; the design's "one emulator per process" wording is changed to the exact constraint as well.

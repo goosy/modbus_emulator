@@ -2,49 +2,49 @@
 id: 0t1q0fs7
 opened: 2026-10-17T23:58:14.000Z
 closed: 2026-10-24T09:58:01.000Z
-title: 逐点读取使 access 事件重复且不精确
+title: Per-point reads make access events repeated and imprecise
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [f465cb4, 6e53415]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-位置：`src/unit_map.js` 的 `get_holding_register` / `get_input_register` / `get_coil`。
+Location: `get_holding_register` / `get_input_register` / `get_coil` in `src/unit_map.js`.
 
-es-modbus 对 FC3 / FC4 的每个寄存器、FC1 / FC2 的每个线圈单独调用一次 handler，handler 每次调用一次 `Ldata.read_bytes`，`read_bytes` 每次都发出一次 `access("read", tags)`。`access` 是 layout-data 的诊断手段，例如核对一条规则声明的依赖与它实际的依赖；对模拟器而言，主站的一次请求才是一次读，下面两点使诊断失真。
+es-modbus calls the handler once for each register of FC3 / FC4 and once for each coil of FC1 / FC2; the handler calls `Ldata.read_bytes` once per call, and each `read_bytes` emits one `access("read", tags)`. `access` is a diagnostic means of layout-data, e.g. for checking the dependencies a rule declares against the ones it actually has; for the emulator, one request of the master is one read, and the two points below distort the diagnosis.
 
-- 重复：一次请求读几个点，就发出几次 `access`。实测：FC3 读 `id`（UInt）、`status`（Word）、`pressure`（Real）共 4 个寄存器，发出 4 次，`pressure` 出现 2 次；FC1 读 `status` 的 16 个线圈，发出 16 次。
-- 不精确：`read_bytes` 没有位掩码，读一个线圈时，同一字节里的所有 Bool 都被报为被读。实测：读线圈 17（不是 `alarm` 的位）也报告了 `alarm`。写方向的 `write_bit` 带掩码，是精确的；layout-data 0.2.0 没有对应的按位读取。
+- Repeated: a request that reads n points emits `access` n times. Measured: FC3 reading 4 registers covering `id` (UInt), `status` (Word) and `pressure` (Real) emits 4 times, with `pressure` appearing twice; FC1 reading the 16 coils of `status` emits 16 times.
+- Imprecise: `read_bytes` has no bit mask, so reading one coil reports every Bool in the same byte as read. Measured: reading coil 17 (not a bit of `alarm`) also reports `alarm`. `write_bit` in the write direction takes a mask and is precise; layout-data 0.2.0 has no corresponding bit read.
 
-layout-data 0.2.0 的 `Ldata.transaction` 解决不了：它只推迟 `change` 和 `write`，`access` 在每次读写调用时立即发出，事务内被回滚的写入也照样发出了 `access write`（实测）。layout-data 0.3.0 已把 `access` 纳入 `transaction`，并增加了按位读取 `read_bit`，见解决提案。
+`Ldata.transaction` of layout-data 0.2.0 does not solve it: it only defers `change` and `write`; `access` is emitted immediately on each read or write call, and writes rolled back inside a transaction still emit `access write` (measured). layout-data 0.3.0 has brought `access` into `transaction` and added the bit read `read_bit`; see the proposal.
 
-次要影响是开销：每个点线性扫描段、分配结果对象与 Buffer 副本。实测（4 个块，读最后一个块）FC3 读 125 个寄存器，逐点约 10 µs，一次 `read_bytes` 约 0.2 µs；相比通信耗时（局域网 TCP 往返百微秒到毫秒级，RTU 9600 波特传输 255 字节约 265 ms）可以忽略，单独不值得修。
+A secondary impact is overhead: for each point, a linear scan of the segments and the allocation of a result object and a Buffer copy. Measured (4 blocks, reading the last block): FC3 reading 125 registers takes about 10 µs point by point and about 0.2 µs with one `read_bytes`; compared with the communication time (a LAN TCP round trip of hundreds of microseconds to milliseconds, about 265 ms to transmit 255 bytes over RTU at 9600 baud) this is negligible and not worth fixing on its own.
 
-写方向见 issue#6w441q89。
+For the write direction, see issue#6w441q89.
 
-## 解决提案
+## Proposal
 
-让一次读请求对每个块只发出一次精确的 `access`。需要三处配合：
+Make one read request emit exactly one precise `access` per block. Three parts work together:
 
-- 外部依赖 es-modbus（es-modbus#yjaww5qx）：0.3.0-beta.4 已提供可选的批量读方法 `get_holding_registers` / `get_input_registers` / `get_coils`，各自对一次 FC3 / FC4 / FC1 请求只调用一次；handler 没有离散输入方法时，FC2 也调用 `get_coils`。本包的线圈与离散输入是同一内容，不提供离散输入方法。本包已锁定该版本（issue#61qwgnt5）。逐点调用不知道请求的边界，本包无法把一次请求包进一个事务，所以批量方法是必需的。
-- 外部依赖 layout-data：0.3.0 已提供以下两项。
-  - 与 `write_bit` 对称的按位读取 `read_bit(offset, mask)`（layout-data#dy6d5xgj），使读线圈时 `access` 只报告被读的 Bool。
-  - `access` 纳入 `transaction`（layout-data#jt0zxgth）：事务内按 `read` / `write` 分别累积涉及的 tag，提交时每种发出一次；回滚时丢弃 `access write`。回滚时照常发出 `access read`；推迟后监听器不再能通过抛出异常否决读取；语义详见该 issue。
-- 本包：handler 实现批量读方法，按块切分请求，每个块的部分在该块的 `transaction` 中读取（寄存器一次 `read_bytes`，线圈逐位 `read_bit`），块之间的空隙照旧读为 0 / false 并报告未映射地址。开销问题随之消除。
+- External dependency es-modbus (es-modbus#yjaww5qx): 0.3.0-beta.4 already provides the optional batch read methods `get_holding_registers` / `get_input_registers` / `get_coils`, each called only once for one FC3 / FC4 / FC1 request; when the handler has no discrete input method, FC2 also calls `get_coils`. In this package coils and discrete inputs have the same content, so no discrete input method is provided. This package already pins that version (issue#61qwgnt5). Per-point calls do not know the boundaries of the request, so this package cannot wrap one request in one transaction; the batch methods are therefore required.
+- External dependency layout-data: 0.3.0 already provides the following two items.
+  - A bit read `read_bit(offset, mask)` symmetric to `write_bit` (layout-data#dy6d5xgj), so that reading coils makes `access` report only the Bools that are read.
+  - `access` brought into `transaction` (layout-data#jt0zxgth): inside a transaction the tags involved are accumulated separately for `read` and `write`, and each kind is emitted once on commit; on rollback `access write` is discarded. `access read` is still emitted on rollback; once deferred, a listener can no longer veto a read by throwing; see that issue for the semantics.
+- This package: the handler implements the batch read methods, splits the request by block, and reads each block's part in that block's `transaction` (one `read_bytes` for registers, `read_bit` bit by bit for coils); the gaps between blocks are still read as 0 / false and reported as unmapped addresses. The overhead problem disappears along with it.
 
-两项外部依赖都已发布（es-modbus 0.3.0-beta.4、layout-data 0.3.0），剩下本包这一侧的实现。
+Both external dependencies have been released (es-modbus 0.3.0-beta.4, layout-data 0.3.0); what remains is the implementation on this package's side.
 
-放弃的方案：
+Rejected alternatives:
 
-- 在逐点调用中用 `transaction` 包住读取：逐点调用不知道请求的边界，一次请求无法包进一个事务（layout-data 0.2.0 的 `transaction` 也不推迟 `access`）。
-- 线圈读改为一次 `read_bytes` 整个字节范围：次数对了，但仍按字节报告，不精确。
-- 只按开销裁定为 wontfix：开销确实可以忽略，但 `access` 的重复与不精确是正确性问题。
+- Wrapping the reads in `transaction` within per-point calls: per-point calls do not know the boundaries of the request, so one request cannot be wrapped in one transaction (and `transaction` in layout-data 0.2.0 does not defer `access` either).
+- Reading coils with one `read_bytes` over the whole byte range: the count is right, but it still reports by byte and is imprecise.
+- Ruling wontfix on the overhead alone: the overhead is indeed negligible, but the repetition and imprecision of `access` are correctness problems.
 
-## 裁定
+## Decision
 
-问题成立，按解决提案修复：handler 实现批量读方法，按块切分请求，每块在 `transaction` 中读取（寄存器一次 `read_bytes`，线圈逐位 `read_bit`），一次读请求对每个块只发出一次精确的 `access`。
+The issue holds; fixed as proposed: the handler implements the batch read methods, splits the request by block and reads each block in a `transaction` (one `read_bytes` for registers, `read_bit` bit by bit for coils), so one read request emits exactly one precise `access` per block.

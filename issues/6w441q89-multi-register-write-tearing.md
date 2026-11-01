@@ -2,54 +2,54 @@
 id: 6w441q89
 opened: 2026-10-17T23:58:04.000Z
 closed: 2026-10-24T09:55:55.000Z
-title: 多寄存器写入出现中间值（撕裂）
+title: Multi-register writes produce intermediate values (tearing)
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [f465cb4, d6dd46d]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-位置：`src/unit_map.js` 的 `set_holding_register` / `set_coil`。
+Location: `set_holding_register` / `set_coil` in `src/unit_map.js`.
 
-es-modbus 对 FC16 的每个寄存器、FC15 的每个线圈单独调用一次 handler，本包每次调用一次 `write_bytes` / `write_bit`，每次都会检测变化并发出事件。
+es-modbus calls the handler once for each register of FC16 and once for each coil of FC15; this package calls `write_bytes` / `write_bit` once per call, and each call detects changes and emits events.
 
-- 一致性：一个跨两个寄存器的 tag（如 Real）会收到一次中间值的 `change`。design 中“调用方用 `setImmediate` 合并通知”的说法只能合并事件，消除不了中间值。
-- 开销：一次请求写 n 个点，就做 n 次变化检测、发出 n 次块的 `write`；`write` 监听器的总开销随之放大 n 倍。实测 FC16 写 125 个寄存器、每次值都不同：逐点 13.5 µs，一次 `write_bytes` 7.7 µs；每个 tag 都有 `change` 监听器时为 18.9 µs 与 10.0 µs；逐点方式每次请求发出 125 次 `write`，批量方式 1 次。
-- 诊断：每次 `write_bytes` / `write_bit` 都发出一次 `access("write", tags)`，一次请求写 n 个点就发出 n 次。
+- Consistency: a tag spanning two registers (e.g. a Real) receives one `change` with an intermediate value. The design's statement that "callers coalesce notifications with `setImmediate`" can only coalesce events; it cannot eliminate intermediate values.
+- Overhead: a request writing n points does n change detections and emits the block's `write` n times; the total cost of `write` listeners is multiplied by n accordingly. Measured with FC16 writing 125 registers, with different values each time: 13.5 µs point by point, 7.7 µs with one `write_bytes`; with a `change` listener on every tag, 18.9 µs and 10.0 µs; the per-point way emits `write` 125 times per request, the batch way once.
+- Diagnostics: each `write_bytes` / `write_bit` emits one `access("write", tags)`, so a request writing n points emits it n times.
 
-## 解决提案
+## Proposal
 
-实现 es-modbus 的可选批量方法 `set_holding_registers(addr, values, unit_id)` / `set_coils(addr, values, unit_id)`：es-modbus 对一次 FC16 / FC15 请求只调用一次，传入该请求的全部值。FC6 / FC5 仍调用 `set_holding_register` / `set_coil`，不变。
+Implement the optional es-modbus batch methods `set_holding_registers(addr, values, unit_id)` / `set_coils(addr, values, unit_id)`: es-modbus calls them only once for one FC16 / FC15 request, passing all the values of that request. FC6 / FC5 still call `set_holding_register` / `set_coil`, unchanged.
 
-- handler 按块切分请求范围。每个块的部分在该块的 `transaction` 中写入：寄存器拼成字节后调用一次 `write_bytes`，线圈按字节调用 `write_bit`（保留按位的写入范围，`access` 只报告被写的 Bool）。一次请求跨几个块，就把这几个块的 `transaction` 逐层嵌套，在一次同步调用中完成。块之间的空隙照旧忽略并报告未映射地址。
-- 原型已验证（以覆盖 `dispatch` 的形式，嵌套方式相同）：一次 FC16 写 8 个寄存器、跨两个块，每个 tag 只有一次 `change`，值为最终值（`1.5→1234.5`）；每个块只有一次 `write`；一个块的监听器抛出异常，不影响另一个块提交。
-- `access`：layout-data 0.3.0 把 `access` 纳入 `transaction`（layout-data#jt0zxgth）：事务内的 `access` 在结束时按 `read` / `write` 各发出一次，回滚时不发出 `access write`。所以寄存器（每块一次 `write_bytes`）和线圈（每个字节一次 `write_bit`）都是一个块一次 `access`。
-- 外部依赖都已发布：es-modbus 的批量方法在 0.3.0-beta.4 中（issue#61qwgnt5），layout-data 的 `access` 纳入 `transaction` 在 0.3.0 中。
+- The handler splits the request range by block. Each block's part is written in that block's `transaction`: registers are assembled into bytes and written with one `write_bytes`; coils are written with `write_bit` per byte (keeping the bitwise write range, so `access` reports only the Bools written). When a request spans several blocks, the `transaction`s of those blocks are nested one inside another and completed within one synchronous call. The gaps between blocks are still ignored and reported as unmapped addresses.
+- Verified with a prototype (in the form of overriding `dispatch`, with the same nesting): one FC16 writing 8 registers across two blocks gives each tag only one `change`, with the final value (`1.5→1234.5`); each block has only one `write`; a listener of one block throwing does not prevent the other block from committing.
+- `access`: layout-data 0.3.0 brings `access` into `transaction` (layout-data#jt0zxgth): `access` within a transaction is emitted once each for `read` / `write` at the end, and `access write` is not emitted on rollback. So both registers (one `write_bytes` per block) and coils (one `write_bit` per byte) give one `access` per block.
+- The external dependencies are all released: the es-modbus batch methods are in 0.3.0-beta.4 (issue#61qwgnt5), and layout-data's `access` in `transaction` is in 0.3.0.
 
-随之确定的语义（先写入 spec / design，含中文版）：
+Semantics settled along with it (written into the spec / design first, including the Chinese versions):
 
-- 一次 FC16 / FC15 请求，对写到的每个块各发出一次 `write`（现为每个点一次）；FC6 / FC5 不变。
-- 请求是原子的：写入中途抛出异常时，涉及的块全部回滚，主站收到 0x04（现为前半部分已写入）。
-- 提交阶段监听器抛出的异常：数据已写入，不回滚，也不影响其他块。handler 捕获后自行报告（报告方式随 issue#mnwdf2fy 确定），不抛给 es-modbus，主站照常收到正常应答；若抛出，es-modbus 会把已写入的请求答为 0x04，并发出 `handler_error`。
-- 嵌套时内层先提交。把块按地址倒序嵌套，使事件按地址顺序发出。
-- 由 handler 实现，所以调用方用 `create_handler` 自行构造的 `Modbus_Server` 同样具有此行为。
-- `access`：一次 FC16 / FC15 请求，对写到的每个块各发出一次 `access write`。
-- 删去 design 中 `setImmediate` 合并的说法。
+- One FC16 / FC15 request emits one `write` for each block written (currently one per point); FC6 / FC5 are unchanged.
+- The request is atomic: when an exception is thrown in the middle of writing, all the blocks involved are rolled back and the master receives 0x04 (currently the first part stays written).
+- An exception thrown by a listener in the commit phase: the data is already written, is not rolled back, and does not affect other blocks. The handler catches it and reports it itself (the reporting way is settled with issue#mnwdf2fy) and does not throw it to es-modbus, so the master receives a normal response; if it were thrown, es-modbus would answer the already written request with 0x04 and emit `handler_error`.
+- When nested, the inner one commits first. Nest the blocks in reverse address order so that events are emitted in address order.
+- It is implemented by the handler, so a `Modbus_Server` the caller builds with `create_handler` has the same behavior.
+- `access`: one FC16 / FC15 request emits one `access write` for each block written.
+- Remove the `setImmediate` coalescing statement from the design.
 
-测试：跨块 FC16 与 FC15、Real 无中间值、每块一次 `write`、寄存器与线圈写每块一次 `access`、中途异常回滚、监听器异常不影响应答。
+Tests: FC16 and FC15 across blocks, no intermediate value for a Real, one `write` per block, one `access` per block for register and coil writes, rollback on an exception in the middle, a listener exception not affecting the response.
 
-放弃的方案：
+Rejected alternatives:
 
-- 逐点调用中使用 `transaction`：做不到，`Ldata.transaction(fn)` 要求在回调内同步完成全部写入，而逐点调用不知道请求的边界。
-- 继承 `Modbus_Server` 并覆盖 `dispatch`，在请求层嵌套 `transaction`：可行，但依赖 es-modbus 的内部调用结构，且只保护本包工厂创建的服务；批量方法是 es-modbus 提供的正式扩展点。
+- Using `transaction` within per-point calls: not possible; `Ldata.transaction(fn)` requires all writes to complete synchronously inside the callback, and per-point calls do not know the boundaries of the request.
+- Subclassing `Modbus_Server` and overriding `dispatch` to nest `transaction` at the request level: feasible, but it depends on the internal call structure of es-modbus and protects only servers created by this package's factories; the batch methods are the official extension point es-modbus provides.
 
-读方向的 `access` 问题见 issue#0t1q0fs7。
+For the `access` problem in the read direction, see issue#0t1q0fs7.
 
-## 裁定
+## Decision
 
-问题成立，需修复：主站一次写入多寄存器的值时，tag 会收到错误的中间值，且每个点都触发一次变化检测和 `write`。采用解决提案的方案，实现 es-modbus 的批量写方法 `set_holding_registers` / `set_coils`，用 `transaction` 使一次请求对每个块原子写入。
+The issue holds and must be fixed: when the master writes values of several registers at once, tags receive wrong intermediate values, and each point triggers a change detection and a `write`. Adopt the proposed solution: implement the es-modbus batch write methods `set_holding_registers` / `set_coils`, and use `transaction` so that one request writes each block atomically.

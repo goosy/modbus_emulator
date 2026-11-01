@@ -2,50 +2,50 @@
 id: mnwdf2fy
 opened: 2026-10-23T13:15:47.067Z
 closed: 2026-10-24T18:26:07.000Z
-title: 诊断信息通过注入的 logger 输出，调用方无法以事件方式处理
+title: Diagnostics go to an injected logger, and callers cannot handle them as events
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [d005ad7, 10d51f8]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-位置：`src/server.js` 的 `normalize_logger`、`log_events`，`src/unit_map.js` 的 `create_handler`，`src/emulator.js` 的构造函数。
+Location: `normalize_logger` and `log_events` in `src/server.js`, `create_handler` in `src/unit_map.js`, the constructor in `src/emulator.js`.
 
-本包把诊断信息格式化成文本，交给调用方注入的 `logger`（`info` / `warn` / `error`）：
+This package formats diagnostics as text and passes them to a `logger` (`info` / `warn` / `error`) injected by the caller:
 
-- server 的 `start`、`stop`、`socket_*`、`error`、`handler_error` 事件被 `log_events` 转成日志文本；
-- handler 发现的未映射地址通过 `logger.warn` 报告。
+- the server events `start`, `stop`, `socket_*`, `error` and `handler_error` are turned into log text by `log_events`;
+- unmapped addresses found by the handler are reported through `logger.warn`.
 
-调用方因此只能拿到文本，无法按类型处理（例如统计未映射地址、对某个服务的错误作出反应），也无法得知事件来自哪个服务。logger 还要层层传递（模拟器 → 工厂 → handler），并被包装两次：`Modbus_Emulator` 已调用 `normalize_logger`，传给 server 工厂后又包装一次。
+So the caller only gets text and cannot handle diagnostics by type (e.g. count unmapped addresses, react to the errors of one server), nor tell which server an event came from. The logger also has to be passed down layer by layer (emulator → factory → handler) and is wrapped twice: `Modbus_Emulator` already calls `normalize_logger`, and the server factory wraps it again.
 
-## 解决提案
+## Proposal
 
-去掉 `logger` 选项与 `normalize_logger`、`log_events`，改用事件。事件由来源发出，`Modbus_Emulator` 汇总：
+Remove the `logger` option together with `normalize_logger` and `log_events`, and use events instead. Events are emitted by their sources and gathered by `Modbus_Emulator`:
 
-- server 级：es-modbus 的 `Modbus_Server` 本身是 `EventEmitter`，已有上述事件。工厂不再包装，手工装配的调用方直接在 server 上订阅。
-- handler 级：`create_handler` 返回的 handler 本身是 `EventEmitter`，发出未映射地址事件。handler 被多个 server 共享，调用时只有 `addr` 和 `unit_id`，无法归到某个 server，所以只能由 handler 发出。去重沿用现状，作用于事件的发出：同一地址只发一次，已发出的地址最多记 1024 个，满时发出一次“不再报告”的通知，之后的地址既不发出也不记录。
-- `Modbus_Emulator` 继承 `EventEmitter`：转发各 server 与 handler 的事件。模拟器把服务标签作为 es-modbus 的 `name` 选项交给 server，事件来源由 `server.name` 得知。调用方使用模拟器时只需监听模拟器。
-- `error` 事件：`EventEmitter` 在无监听器时发出 `error` 会抛出异常。去掉 `log_events` 后 server 的 `error` 不再有默认监听器，一个连接错误就可能使进程崩溃。因此模拟器始终监听每个 server 的 `error`，并改名转发（如 `server_error`，载荷 `{ server, error }`），不发出自己的 `error`。直接使用工厂的调用方须自行监听 server 的 `error`，在 spec 中写明。
-- 构造期的诊断（如 issue#rks1v7pr 的警告）发生在调用方能挂监听器之前，不用事件，收入模拟器的 `warnings` 属性。
+- Server level: es-modbus's `Modbus_Server` is itself an `EventEmitter` and already has the events above. The factories no longer wrap them; callers assembling by hand subscribe on the server directly.
+- Handler level: the handler returned by `create_handler` is itself an `EventEmitter` and emits the unmapped address events. The handler is shared by several servers, and a call has only `addr` and `unit_id`, so it cannot be attributed to a server; only the handler can emit them. Deduplication stays as it is and applies to emitting events: the same address is emitted only once, at most 1024 emitted addresses are recorded, and when full a "no longer reported" notice is emitted once; later addresses are neither emitted nor recorded.
+- `Modbus_Emulator` extends `EventEmitter`: it forwards the events of each server and of the handler. The emulator gives the server label to the server as the es-modbus `name` option, and the source of an event is known from `server.name`. A caller using the emulator only needs to listen to the emulator.
+- The `error` event: `EventEmitter` throws when `error` is emitted without listeners. Once `log_events` is removed, the server's `error` has no default listener any more, and a single connection error could crash the process. So the emulator always listens to each server's `error` and forwards it under another name (e.g. `server_error`, payload `{ server, error }`), never emitting its own `error`. Callers using the factories directly must listen to the server's `error` themselves, as stated in the spec.
+- Diagnostics during construction (e.g. the warnings of issue#rks1v7pr) happen before the caller can attach listeners; they do not use events and are collected in the emulator's `warnings` property.
 
-事件名与载荷：
+Event names and payloads:
 
-- handler 发出：
-  - `unmapped`，载荷 `{ kind, unit_id, addr }`，`kind` 为 `"holding_register"` / `"input_register"` / `"coil"`；按上述去重，同一地址只发一次。
-  - `unmapped_limit`，载荷 `{ limit }`：已发出的地址达到上限（1024）时发出一次，之后的地址不再发出。
-  - `listener_error`，载荷 `{ block, error }`：提交阶段块的监听器（`change` / `write` / `access`）抛出的异常；数据已写入，主站照常收到应答（issue#6w441q89、issue#0t1q0fs7）。
-- 模拟器转发：
-  - server 的事件统一加前缀 `server_`：`server_start`、`server_stop`、`server_socket_connect`、`server_socket_disconnect`、`server_socket_error`、`server_error`、`server_handler_error`、`server_receive`、`server_send`。载荷为 `{ server, ... }`，es-modbus 原有的参数放入命名字段（`socket` / `error` / `frame`）；`server.name` 即服务标签，如 `servers[1] (modbus://0.0.0.0:503)`，`start()` 的报错也用它。
-  - handler 的事件按原名、原载荷转发。
-- handler 返回无效值（批量读结果长度不符、寄存器值越界）由 es-modbus 校验，作为 `handler_error` 报告，主站收到 0x04，经模拟器转发为 `server_handler_error`，不另设事件。本包的 handler 由块的字节构造返回值，出现无效值只能是本包的缺陷。
+- Emitted by the handler:
+  - `unmapped`, payload `{ kind, unit_id, addr }`, with `kind` being `"holding_register"` / `"input_register"` / `"coil"`; deduplicated as above, the same address is emitted only once.
+  - `unmapped_limit`, payload `{ limit }`: emitted once when the emitted addresses reach the limit (1024); later addresses are no longer emitted.
+  - `listener_error`, payload `{ block, error }`: an exception thrown by a block's listener (`change` / `write` / `access`) in the commit phase; the data is already written and the master receives a normal response (issue#6w441q89, issue#0t1q0fs7).
+- Forwarded by the emulator:
+  - Server events all get the prefix `server_`: `server_start`, `server_stop`, `server_socket_connect`, `server_socket_disconnect`, `server_socket_error`, `server_error`, `server_handler_error`, `server_receive`, `server_send`. The payload is `{ server, ... }`, with the original es-modbus arguments in named fields (`socket` / `error` / `frame`); `server.name` is the server label, e.g. `servers[1] (modbus://0.0.0.0:503)`, which the errors of `start()` also use.
+  - Handler events are forwarded with their original names and payloads.
+- Invalid values returned by the handler (a batch read result of the wrong length, a register value out of range) are validated by es-modbus and reported as `handler_error`; the master receives 0x04, and the emulator forwards it as `server_handler_error`; no separate event is added. This package's handler builds the return values from the blocks' bytes, so an invalid value can only be a defect of this package.
 
-需同步 spec / design（含中文版）、`src/index.d.ts`、README。属 breaking change。
+The spec / design (including the Chinese versions), `src/index.d.ts` and the README need to be updated. This is a breaking change.
 
-## 裁定
+## Decision
 
-问题成立，按解决提案修复：去掉 `logger`，由 handler 与 server 发出事件，模拟器汇总转发；服务标签作为 server 的 `name`，载荷不再另带标签；构造期诊断收入 `warnings`。
+The issue holds; fixed as proposed: `logger` is removed, the handler and the servers emit events, and the emulator gathers and forwards them; the server label is the server's `name`, and payloads carry no separate label; diagnostics during construction are collected in `warnings`.

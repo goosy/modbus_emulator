@@ -2,24 +2,24 @@
 id: fxp6kvma
 opened: 2026-10-17T23:58:26.000Z
 closed: 2026-10-24T09:26:11.000Z
-title: 测试辅助函数 free_port 重复且有竞态
+title: The test helper free_port is duplicated and racy
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [844109d]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-`free_port` 先探测再释放端口，释放后到被测服务监听之间，端口可能被别的进程占用，导致测试偶发失败。它在 `test/emulator_test.js` 与 `test/server_test.js` 中重复实现。
+`free_port` probes a port and then releases it; between the release and the server under test listening, the port may be taken by another process, making tests fail occasionally. It is implemented twice, in `test/emulator_test.js` and `test/server_test.js`.
 
-## 解决提案
+## Proposal
 
-合并为一个共享的测试辅助模块。让被测服务监听端口 0 并读取实际端口，以消除竞态。
+Merge it into one shared test helper module. Let the server under test listen on port 0 and read the actual port, which removes the race.
 
-## 裁定
+## Decision
 
-问题成立，按解决提案修复：辅助函数合并到 `test/helpers.js`；被测服务监听端口 0，测试从 es-modbus 内部的 `server.server.address()` 读取实际端口，消除竞态。
+The issue holds; fixed as proposed: the helpers are merged into `test/helpers.js`; the server under test listens on port 0, and the tests read the actual port from `server.server.address()` inside es-modbus, which removes the race.

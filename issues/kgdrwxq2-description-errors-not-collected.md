@@ -2,36 +2,36 @@
 id: kgdrwxq2
 opened: 2026-10-24T15:01:24.251Z
 closed: 2026-10-24T16:20:22.000Z
-title: 部分描述错误不收入 errors，而是直接抛出
+title: Some description errors are thrown directly instead of collected in errors
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [a03e9cc]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-位置：`src/emulator.js` 的 `#read_blocks`、`#read_servers`。
+Location: `#read_blocks` and `#read_servers` in `src/emulator.js`.
 
-spec 约定：描述不合法时，构造函数抛出一个 `Error`，其 `errors` 属性列出全部违规项。以下两种错误没有被模拟器校验，而是由依赖（layout-data、es-modbus）抛出，绕过了这一约定：
+The spec states: when a description is invalid, the constructor throws one `Error` whose `errors` property lists all violations. The following two kinds of errors are not validated by the emulator but thrown by the dependencies (layout-data, es-modbus), bypassing this rule:
 
-- 块名不是字符串（如 `name: 123`）：模拟器不检查块名的类型，校验循环中的 `new Ldata(layout, name)` 抛出 layout-data 的 `TypeError`，校验中途中止。
-- RTU 服务的串口参数不合法（如 `baud_rate: -1`、`data_bits: 9`）：`#read_servers` 只检查串口路径，`baud_rate`、`parity`、`data_bits`、`stop_bits` 不检查；全部校验通过后创建服务时，由 es-modbus 抛出。
+- A block name that is not a string (e.g. `name: 123`): the emulator does not check the type of block names, so `new Ldata(layout, name)` in the validation loop throws layout-data's `TypeError` and the validation aborts midway.
+- Invalid serial parameters of an RTU server (e.g. `baud_rate: -1`, `data_bits: 9`): `#read_servers` checks only the serial port path, not `baud_rate`, `parity`, `data_bits` and `stop_bits`; es-modbus throws when the servers are created after all validation has passed.
 
-影响：调用方收到的是没有 `errors` 属性的异常。块名错误还会丢掉此前已收集的违规项；串口参数错误只在没有其他违规项时才出现，不能与它们一起报出。
+Impact: the caller receives an exception without an `errors` property. A block name error also drops the violations collected before it; a serial parameter error appears only when there are no other violations, and cannot be reported together with them.
 
-## 解决提案
+## Proposal
 
-在校验阶段补上这两项检查，违规时收入 `errors`：
+Add these two checks in the validation phase, collecting violations in `errors`:
 
-- 块名：给出时须为非空字符串。
-- 串口参数：取值范围与 es-modbus 一致：`baud_rate` 为正整数，`parity` 为 `none` / `odd` / `even`，`data_bits` 为 5、6、7、8，`stop_bits` 为 1、1.5、2。
+- Block name: when given, it must be a non-empty string.
+- Serial parameters: ranges consistent with es-modbus: `baud_rate` a positive integer, `parity` `none` / `odd` / `even`, `data_bits` 5, 6, 7 or 8, `stop_bits` 1, 1.5 or 2.
 
-测试：两种错误都出现在 `errors` 中，并与其他违规项一起报出。
+Tests: both errors appear in `errors` and are reported together with other violations.
 
-## 裁定
+## Decision
 
-问题成立，按解决提案修复：校验阶段检查块名须为非空字符串、RTU 串口参数取值与 es-modbus 一致，违规时收入 `errors`，与其他违规项一起报出。
+The issue holds; fixed as proposed: the validation phase checks that block names are non-empty strings and that RTU serial parameters are consistent with es-modbus, collecting violations in `errors` and reporting them together with other violations.

@@ -2,30 +2,30 @@
 id: 0vdz2x70
 opened: 2026-10-17T23:58:07.000Z
 closed: 2026-10-23T14:07:46.000Z
-title: 块的 offset 没有要求偶数
+title: The block offset is not required to be even
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [a14a08c]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-位置：`src/emulator.js` 的 `#read_blocks`。
+Location: `#read_blocks` in `src/emulator.js`.
 
-只检查了非负整数。奇数 `offset` 使块在单元中的有效长度为奇数，最后一个寄存器读到块外。
+Only a non-negative integer is checked. An odd `offset` makes the effective length of the block in the unit odd, and the last register reads past the end of the block.
 
-复现：`offset: 1` 时读最后一个寄存器，`read_bytes` 抛出 RangeError，主站收到异常码 0x04。
+Reproduction: with `offset: 1`, reading the last register makes `read_bytes` throw a RangeError, and the master receives exception code 0x04.
 
-layout-data 已拒绝长度不是整寄存器的布局，所以问题只来自 `offset`。
+layout-data already rejects layouts whose length is not a whole number of registers, so the problem comes only from `offset`.
 
-## 解决提案
+## Proposal
 
-校验要求 `offset` 为非负偶数，同步 spec。
+Require `offset` to be a non-negative even number in the validation, and update the spec accordingly.
 
-## 裁定
+## Decision
 
-问题成立，按解决提案修复：奇数 `offset` 会使主站读到块外，校验要求它为非负偶数。
+The issue holds; fixed as proposed: an odd `offset` makes the master read past the end of the block, so the validation requires it to be a non-negative even number.

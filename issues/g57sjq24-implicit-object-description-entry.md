@@ -2,29 +2,29 @@
 id: g57sjq24
 opened: 2026-10-17T23:58:18.000Z
 closed: 2026-10-24T16:18:10.000Z
-title: 隐性的对象描述入口
+title: The implicit object description entry
 status: rejected    # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-构造函数接受对象形式的描述（也可以与路径混在一个列表中），控制器项目依赖它，但 spec 与类型声明都未包含它，代码注释还称它“不公开”。隐性契约在重构时容易被破坏。对象中相对的 `layouts_file` 按当前目录解析，这一规则也没有写明。
+The constructor accepts descriptions in object form (also mixed with paths in one list), and the controller project depends on it, but neither the spec nor the type declarations include it, and a code comment even calls it "not public". An implicit contract is easily broken during refactoring. A relative `layouts_file` in an object is resolved against the current directory, and this rule is not stated either.
 
-## 解决提案
+## Proposal
 
-在 spec（含中文版）与 `src/index.d.ts` 中公开现有行为，并去掉代码注释中“不公开”的说法：
+Make the existing behavior public in the spec (including the Chinese version) and `src/index.d.ts`, and remove the "not public" wording from the code comment:
 
-- `source` 可以是描述文件的路径、描述对象，或二者混合的列表；对象与描述文件的结构相同。
-- 对象中相对的 `layouts_file` 按当前目录解析。需要其他基准目录时，调用方传入绝对路径；或按 issue#cxh7ygz3 的做法单独注册布局，对象中不写 `layouts_file`。
+- `source` can be a path of a description file, a description object, or a list mixing both; an object has the same structure as a description file.
+- A relative `layouts_file` in an object is resolved against the current directory. When another base directory is needed, the caller passes an absolute path; or registers the layouts separately as in issue#cxh7ygz3 and writes no `layouts_file` in the object.
 
-测试：路径与对象混合的列表；对象中相对的 `layouts_file` 按当前目录解析。
+Tests: a list mixing paths and objects; a relative `layouts_file` in an object resolved against the current directory.
 
-## 裁定
+## Decision
 
-问题不成立（rejected）：对象形式的描述是有意不公开的内部入口，供同系列项目的控制器使用。design 已写明它的用途和对象中相对 `layouts_file` 按当前目录解析的规则，测试也覆盖了它，并非重构时容易被破坏的隐性契约。
+The issue does not hold (rejected): the object form of descriptions is an internal entry intentionally kept non-public, for the controllers of projects in the same series. The design already states its purpose and the rule that a relative `layouts_file` in an object is resolved against the current directory, and the tests cover it; it is not an implicit contract easily broken during refactoring.

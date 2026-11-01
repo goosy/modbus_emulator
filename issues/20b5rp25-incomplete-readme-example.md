@@ -2,24 +2,24 @@
 id: 20b5rp25
 opened: 2026-10-17T23:58:29.000Z
 closed: 2026-10-23T13:32:37.000Z
-title: README 示例不完整
+title: The README example is incomplete
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [e7d125a]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-“Without a description file”示例中 `block` 未定义，也没有演示注册布局与创建 Ldata。
+In the "Without a description file" example, `block` is undefined, and registering the layout and creating the Ldata are not shown.
 
-## 解决提案
+## Proposal
 
-补全布局注册与 Ldata 创建。示例不传 `logger`：它将被事件取代（issue#mnwdf2fy）。
+Complete the layout registration and the Ldata creation. The example does not pass `logger`: it will be replaced by events (issue#mnwdf2fy).
 
-## 裁定
+## Decision
 
-问题成立，按解决提案修复：示例照抄即可运行。
+The issue holds; fixed as proposed: the example runs as written.

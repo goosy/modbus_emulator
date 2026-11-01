@@ -2,28 +2,28 @@
 id: j43awjvg
 opened: 2026-10-17T23:58:23.000Z
 closed: 2026-10-24T18:29:00.000Z
-title: 类型声明不完整
+title: The type declarations are incomplete
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [e7d125a, 3f746e7]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-- `layouts`、`blocks` 应为只读，声明中可赋值；
-- `Modbus_Server` 接口缺少实际在用的 `port`、`protocol`、`is_valid_unit_id`；
+- `layouts` and `blocks` should be read-only, but are assignable in the declarations;
+- the `Modbus_Server` interface lacks `port`, `protocol` and `is_valid_unit_id`, which are actually in use;
 
-## 解决提案
+## Proposal
 
-- `Modbus_Emulator` 在构造时确定、不应重新赋值的属性都标 `readonly`：`unit_map`、`handler`、`layouts`、`blocks`、`servers`、`warnings`。容器的内容也只读：`blocks` 为 `ReadonlyMap`，`layouts` 为 `Readonly<Record>`，`servers`、`warnings` 为只读数组；只标 `readonly` 只能防止属性被整体替换。
-- `Modbus_Server` 补上 `port`、`protocol`、`is_valid_unit_id`。
+- Mark as `readonly` all properties of `Modbus_Emulator` that are fixed at construction and should not be reassigned: `unit_map`, `handler`, `layouts`, `blocks`, `servers`, `warnings`. The contents of the containers are read-only as well: `blocks` is a `ReadonlyMap`, `layouts` a `Readonly<Record>`, and `servers` and `warnings` read-only arrays; marking only `readonly` merely prevents the property from being replaced as a whole.
+- Add `port`, `protocol` and `is_valid_unit_id` to `Modbus_Server`.
 
-原先一并列出的过时注释（`Modbus_Server` 的注释写着 es-modbus “bundled into this package”）已单独修正，提交中引用了本 issue。
+The outdated comment listed here earlier (the comment of `Modbus_Server` saying es-modbus is "bundled into this package") has been corrected separately, in a commit referencing this issue.
 
-## 裁定
+## Decision
 
-问题成立，按解决提案修复：`Modbus_Emulator` 构造时确定的属性及其内容声明为只读，`Modbus_Server` 补全实际在用的属性与方法。
+The issue holds; fixed as proposed: the properties of `Modbus_Emulator` fixed at construction and their contents are declared read-only, and `Modbus_Server` is completed with the properties and methods actually in use.

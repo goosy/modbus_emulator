@@ -2,31 +2,31 @@
 id: wxw1tbmx
 opened: 2026-10-17T23:58:16.000Z
 closed: 2026-10-24T01:40:33.000Z
-title: 模块级共享缓冲区
+title: Module-level shared buffer
 status: rejected    # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-位置：`src/unit_map.js` 的 `REGISTER_BYTES`。
+Location: `REGISTER_BYTES` in `src/unit_map.js`.
 
-`set_holding_register` 把寄存器值写入一个模块级共享的两字节数组，再交给 `write_bytes`。评估时认为这依赖“调用是同步的，且 `write_bytes` 立即复制”这一隐含前提。
+`set_holding_register` writes the register value into a module-level shared two-byte array and passes it to `write_bytes`. The review considered this to depend on the implicit premise that "the call is synchronous and `write_bytes` copies immediately".
 
-## 解决提案
+## Proposal
 
-这个前提并非隐含，而是有依据的。
+This premise is not implicit but well founded.
 
-- `write_bytes` 先把源字节复制进块的缓冲区，再检测变化、发出事件；即使 `change` / `write` 监听器同步地再次调用 handler，此时共享数组也已复制完毕。
-- design 和代码注释都已写明“`write_bytes` 立即复制”。
+- `write_bytes` first copies the source bytes into the block's buffer, and only then detects changes and emits events; even if a `change` / `write` listener calls the handler again synchronously, the shared array has already been copied by then.
+- Both the design and the code comment already state that "`write_bytes` copies immediately".
 
-改用批量写（issue#6w441q89）后，FC6 仍调用 `set_holding_register`，这个数组照旧使用，不会去掉。
+After switching to batch writes (issue#6w441q89), FC6 still calls `set_holding_register`, and this array stays in use; it will not be removed.
 
-## 裁定
+## Decision
 
-问题不成立（rejected）：`write_bytes` 在检测变化和发出事件之前就已复制源字节，共享数组的使用是安全的，且这一前提已写在 design 和代码注释中。
+The issue does not hold (rejected): `write_bytes` copies the source bytes before detecting changes and emitting events, so using the shared array is safe, and this premise is already written in the design and the code comment.

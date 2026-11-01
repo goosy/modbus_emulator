@@ -2,33 +2,33 @@
 id: zfdne38j
 opened: 2026-10-17T23:58:15.000Z
 closed: 2026-10-23T14:39:05.000Z
-title: 未映射地址警告的集合无上限
+title: The set of unmapped address warnings is unbounded
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [10478ec]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-位置：`src/unit_map.js` 的 `reported`。
+Location: `reported` in `src/unit_map.js`.
 
-每个 (类型, 单元, 地址) 记一项。主站扫描整个地址空间时，理论上可达 65536 × 3 × 256 项。
+One entry is recorded per (kind, unit, address). When a master scans the whole address space, it can in theory reach 65536 × 3 × 256 entries.
 
-## 解决提案
+## Proposal
 
-设上限：已报告的地址最多记 1024 个，满时再报告一次“不再报告”的警告，之后的地址既不报告也不记录。
+Set a limit: at most 1024 reported addresses are recorded; when full, a "no longer reported" warning is reported once, and later addresses are neither reported nor recorded.
 
-改为事件方式后（issue#mnwdf2fy），未映射地址由 vector 发出事件，去重仍由本包负责，作用于事件的发出：同一地址只发一次。
+After switching to events (issue#mnwdf2fy), unmapped addresses are emitted as events by the vector, and deduplication is still done by this package, applied to emitting events: the same address is emitted only once.
 
-放弃的方案：
+Rejected alternatives:
 
-- 每次访问都发出事件、由订阅方去重：主站轮询时会持续淹没监听器。
-- 按区间去重：扫描整个地址空间时区间数仍可能很多，且合并区间的实现复杂，换来的只是警告更紧凑。
+- Emitting an event on every access and letting subscribers deduplicate: a polling master would keep flooding the listeners.
+- Deduplicating by range: scanning the whole address space can still produce many ranges, and merging ranges is complex to implement, gaining only more compact warnings.
 
-## 裁定
+## Decision
 
-问题成立，按解决提案修复：设上限 1024，集合有界，超出时明确告知不再报告。
+The issue holds; fixed as proposed: a limit of 1024 makes the set bounded, and when it is exceeded the caller is told explicitly that no more are reported.

@@ -2,30 +2,30 @@
 id: 7w2awj10
 opened: 2026-10-17T23:58:17.000Z
 closed: 2026-10-24T16:18:10.000Z
-title: 构造函数职责过多
+title: The constructor has too many responsibilities
 status: rejected    # open | accepted | fixed | rejected | wontfix
 fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-`Modbus_Emulator` 的构造函数依次读文件、解析、校验、注册全局布局（有进程级副作用）、建块、建服务。有副作用的步骤夹在校验中间，校验也无法单独使用（如编辑器中预检描述文件）。
+The constructor of `Modbus_Emulator` reads files, parses, validates, registers the global layouts (a process-level side effect), builds blocks and builds servers, in that order. The step with a side effect sits in the middle of the validation, and the validation cannot be used on its own either (e.g. pre-checking a description file in an editor).
 
-由此产生的缺陷：布局在 blocks 和 servers 校验之前就注册到 layout-data 的全局表中，之后的校验一旦失败，构造失败，但注册已经发生，而 `register_layout` 每进程只能成功一次。复现：描述因 `unit_id: 300` 失败；修正后在同一进程再次构造，报 `register_layout can be called only once`。热重载、GUI 等场景下无法重试。
+The resulting defect: the layouts are registered in layout-data's global table before blocks and servers are validated; once a later validation fails, the construction fails, but the registration has already happened, and `register_layout` can succeed only once per process. Reproduction: a description fails because of `unit_id: 300`; after correcting it, constructing again in the same process reports `register_layout can be called only once`. Retrying is impossible in scenarios such as hot reload or a GUI.
 
-## 解决提案
+## Proposal
 
-拆分为“加载与校验（纯函数）→ 构建（注册布局、建块）→ 建服务”三个阶段。所有校验完成之后才调用 `register_layout`，校验失败不再用掉注册的机会。
+Split it into three phases: "load and validate (pure functions) → build (register layouts, build blocks) → build servers". Call `register_layout` only after all validation is complete, so that a failed validation no longer uses up the registration.
 
-## 裁定
+## Decision
 
-问题不成立（rejected）：
+The issue does not hold (rejected):
 
-- 修改配置后应重启进程。新进程尚未注册布局，改正后的描述照常构造成功；失败进程里被用掉的注册随进程结束而失效，不造成影响。同一进程内改正描述后重新构造，不是本包要支持的场景。
-- 不动布局、只重建实例（如换端口、IP）时，让布局独立于实例：单独注册布局，描述只引用布局名，这样的描述在同一进程中可以多次构造（见 issue#cxh7ygz3）；动布局等于替换整个数据状态，重启进程更有效。
-- 提案的“全部校验先于注册”也做不到：块的放置检查（如 issue#xrstt0sk 的重叠检查）需要块大小，块大小来自布局的编译。“校验可单独使用”没有调用方需要。
+- After changing the configuration, the process should be restarted. The new process has not registered any layouts yet, so the corrected description is constructed successfully; the registration used up in the failed process goes away with that process and has no effect. Correcting a description and constructing again within the same process is not a scenario this package supports.
+- To rebuild instances without touching the layouts (e.g. changing ports or IPs), make the layouts independent of the instances: register the layouts separately and let the description only reference layout names; such a description can be constructed several times in one process (see issue#cxh7ygz3). Changing the layouts amounts to replacing the whole data state, for which restarting the process is more effective.
+- The proposed "all validation before registration" is not achievable either: the block placement checks (e.g. the overlap check of issue#xrstt0sk) need the block sizes, which come from compiling the layouts. No caller needs "validation usable on its own".

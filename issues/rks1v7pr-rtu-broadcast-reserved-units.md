@@ -2,30 +2,30 @@
 id: rks1v7pr
 opened: 2026-10-17T23:58:13.000Z
 closed: 2026-10-24T18:27:41.000Z
-title: RTU 的 unit 0 与保留地址未说明
+title: RTU unit 0 and the reserved addresses are not explained
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [03d30e7]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-RTU 下 unit 0 是广播地址：es-modbus 对它只执行写、不应答。挂在 unit 0 的块对 RTU 主站不可读。248..255 在串行总线上是保留地址。spec 允许 `unit_id` 为 0..255，未说明这些语义，校验也不提示。
+Under RTU, unit 0 is the broadcast address: es-modbus only executes writes to it and does not respond. A block attached at unit 0 is not readable by an RTU master. 248..255 are reserved addresses on a serial bus. The spec allows `unit_id` to be 0..255 without explaining these semantics, and the validation gives no hint.
 
-## 解决提案
+## Proposal
 
-在 spec 中说明，并在校验时给出警告（不作为错误）：串行总线上的服务（`rtu` 与 `rtu_over_tcp`，即 es-modbus 中协议不是 `tcp` 的服务，它们都把 unit 0 当作广播）所应答的单元含 0 或 248..255 时产生警告。
+Explain it in the spec, and give a warning (not an error) during validation: a warning is produced when the units answered by a server on a serial bus (`rtu` and `rtu_over_tcp`, i.e. the servers whose protocol in es-modbus is not `tcp`, all of which treat unit 0 as broadcast) include 0 or 248..255.
 
-警告在构造期产生，调用方还来不及挂监听器，因此不用事件，收入模拟器的 `warnings` 属性（见 issue#mnwdf2fy）。
+The warnings are produced during construction, before the caller can attach listeners, so they do not use events and are collected in the emulator's `warnings` property (see issue#mnwdf2fy).
 
-测试：`rtu` 与 `rtu_over_tcp` 服务的单元含 0 或 248..255 时产生警告，`tcp` 服务不产生。
+Tests: a warning is produced when the units of an `rtu` or `rtu_over_tcp` server include 0 or 248..255; a `tcp` server produces none.
 
-放弃的方案：通过 logger 报告，logger 将被去掉（issue#mnwdf2fy）。
+Rejected alternative: reporting through the logger, which will be removed (issue#mnwdf2fy).
 
-## 裁定
+## Decision
 
-问题成立，按解决提案修复：spec 写明串行总线上 unit 0 为广播、248..255 为保留地址；协议不是 `tcp` 的服务应答这些单元时，在 `warnings` 中给出警告。
+The issue holds; fixed as proposed: the spec states that on a serial bus unit 0 is broadcast and 248..255 are reserved addresses; when a server whose protocol is not `tcp` answers these units, a warning is given in `warnings`.

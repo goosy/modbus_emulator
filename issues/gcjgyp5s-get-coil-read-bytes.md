@@ -2,26 +2,26 @@
 id: gcjgyp5s
 opened: 2026-10-28T17:28:21.928Z
 closed: 2026-10-29T04:58:18.000Z
-title: get_coil 用 read_bytes 读位，access 报出整个字节的 Bool
+title: get_coil reads the bit with read_bytes, so access reports every Bool of the byte
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [ae3d8d7]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-handler 的批量方法 `get_coils` 用 `block.read_bit(offset, bit_mask)` 读线圈，单个的 `get_coil` 却用 `(block.read_bytes(offset, 1)[0] & bit_mask) > 0`。两者的 `access` 事件不同：读同一个线圈，`read_bytes` 报出该字节中所有的 Bool（如 `c0,c1`），`read_bit` 只报出被读的那一个（`c0`），已用脚本验证。
+The handler's batch method `get_coils` reads coils with `block.read_bit(offset, bit_mask)`, while the single `get_coil` uses `(block.read_bytes(offset, 1)[0] & bit_mask) > 0`. The two give different `access` events: reading the same coil, `read_bytes` reports every Bool in that byte (e.g. `c0,c1`), while `read_bit` reports only the one read (`c0`), as verified with a script.
 
-es-modbus 在 handler 有 `get_coils` 时不调用 `get_coil`，所以 FC 1 / FC 2 请求不受影响；但 `get_coil` 是公开的 handler 方法，直接调用它的使用方看到的 `access` 与批量读不一致。
+es-modbus does not call `get_coil` when the handler has `get_coils`, so FC 1 / FC 2 requests are not affected; but `get_coil` is a public handler method, and users calling it directly see an `access` inconsistent with the batch read.
 
-## 解决提案
+## Proposal
 
-`get_coil` 改为 `return block.read_bit(offset, bit_mask);`。`read_bit` 正是 layout-data 为此提供的（layout-data issue#dy6d5xgj：只报出被读位的 Bool），改后单读与批读的 `access` 一致，代码也少一个表达式。
+Change `get_coil` to `return block.read_bit(offset, bit_mask);`. `read_bit` is exactly what layout-data provides for this (layout-data issue#dy6d5xgj: reports only the Bool of the bit read); after the change the `access` of single and batch reads is consistent, and the code has one expression less.
 
-## 裁定
+## Decision
 
-修复。`get_coil` 改用 `read_bit`，单读与批读的 `access` 一致，都只报出被读位的 Bool。
+Fix. `get_coil` uses `read_bit`, so the `access` of single and batch reads is consistent, both reporting only the Bool of the bit read.

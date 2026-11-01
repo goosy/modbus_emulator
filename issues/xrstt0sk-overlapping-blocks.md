@@ -2,28 +2,28 @@
 id: xrstt0sk
 opened: 2026-10-17T23:58:08.000Z
 closed: 2026-10-24T12:55:35.000Z
-title: 同一单元内块的地址范围重叠没有检测
+title: Overlapping address ranges of blocks within one unit are not detected
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [522b4ca]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-位置：`src/unit_map.js` 的 `attach_unit`。
+Location: `attach_unit` in `src/unit_map.js`.
 
-重叠的块照样构造成功，读写命中先挂载的块，后挂载的块在重叠部分不可达，没有任何提示。
+Overlapping blocks are constructed successfully; reads and writes hit the block attached first, and the block attached later is unreachable in the overlapping part, without any hint.
 
-## 解决提案
+## Proposal
 
-检测同一单元内块的字节范围重叠并报错。检查放在 `attach_unit` 中，使手工装配 `Unit_Map` 的调用方同样受保护。
+Detect overlapping byte ranges of blocks within one unit and report an error. Put the check in `attach_unit`, so that callers assembling a `Unit_Map` by hand are protected as well.
 
-测试：同一单元内块重叠时报错，经描述文件构造与手工装配 `Unit_Map` 两条路径都要覆盖。
+Tests: an error is reported when blocks overlap within one unit, covering both paths, construction from a description file and assembling a `Unit_Map` by hand.
 
-## 裁定
+## Decision
 
-问题成立，按解决提案修复：`attach_unit` 在有序插入前检查新段与相邻段是否重叠，重叠时抛出指明两个数据块的 `Error`，单元表保持不变；模拟器构造时把它作为该数据块条目的错误一并报告。
+The issue holds; fixed as proposed: before the ordered insertion, `attach_unit` checks whether the new segment overlaps its neighbouring segments, and on overlap throws an `Error` naming both data blocks, leaving the unit table unchanged; at construction the emulator reports it as an error of that data block entry along with the others.

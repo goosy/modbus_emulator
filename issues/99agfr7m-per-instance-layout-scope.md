@@ -2,45 +2,45 @@
 id: 99agfr7m
 opened: 2026-10-27T18:41:16.423Z
 closed: 2026-10-27T22:01:36.000Z
-title: 布局登记域绑定在整个包上，而不是各个模拟器实例上
+title: The layout scope is bound to the whole package instead of to each emulator instance
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [19e9f26]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-位置：`src/emulator.js` 的模块级变量 `package_scope`、`time_scope_name` 和 `#load`；规范 §4“布局登记域”；设计中的“构造”“绑定”“登记域”三条（a60df57 引入，issue#0seqxpy5 升级 layout-data 0.6.0 时保留）。
+Location: the module-level variables `package_scope` and `time_scope_name` and `#load` in `src/emulator.js`; spec §4 "Layout scope"; the "Construction", "Binding" and "Scope" items in the design (introduced by a60df57, kept when issue#0seqxpy5 upgraded to layout-data 0.6.0).
 
-现在第一个取得登记域的模拟器把整个包绑定到该登记域，直到进程结束：
+Currently the first emulator that obtains a scope binds the whole package to that scope until the process ends:
 
-- 之后的模拟器给出其他登记域名称，构造时报错 `scope X: the package uses scope Y`。
-- 布局持有其 ldata 的名字（layout-data 的 issue#yxhoe1w3），而模拟器从不交还块名：同一份描述在同一进程中只能构造一次，不论构造成功还是失败，即使先前的模拟器已经 `stop()`。
-- 省略登记域名称时，绑定之前用 UTC 时间构成名称，调用方事先不知道它。
+- A later emulator giving another scope name fails at construction with `scope X: the package uses scope Y`.
+- A layout holds the names of its ldata (layout-data issue#yxhoe1w3), and the emulator never returns the block names: the same description can be constructed only once in one process, whether the construction succeeds or fails, even after the earlier emulator has been `stop()`ped.
+- When the scope name is omitted, the name is built from the UTC time before binding, and the caller does not know it in advance.
 
-设计意图应当为：一个模拟器实例只绑定一套布局；有多个实例时各用各的，互不串用。这样能简化布局的描述和实现模拟器实例之间的分离｡
+The design intent should be: one emulator instance binds only one set of layouts; with several instances, each uses its own and they do not mix. This simplifies the description of layouts and the separation between emulator instances.
 
-影响：调用方无法在同一进程中多次用独立布局的描述构造模拟器。例如想模拟出多个布局有微小差异的多型号设备。
+Impact: the caller cannot construct emulators several times in one process from descriptions with independent layouts, e.g. to emulate several device models whose layouts differ slightly.
 
-## 解决提案
+## Proposal
 
-方向：登记域的绑定归实例所有，去掉模块级的 `package_scope`；登记域由调用方在代码中选择（构造方法的参数 `scope`，issue#0seqxpy5 已用它取代描述的根键 `scope`）。实例之间的分离靠各自的 Ldata 块；布局的复用与冲突交给 layout-data 在一个登记域内按指纹判断，本包不另设表。
+Direction: the binding of the scope belongs to the instance; remove the module-level `package_scope`; the scope is chosen by the caller in code (the constructor parameter `scope`, which issue#0seqxpy5 already uses in place of the description's root key `scope`). Instances are separated by their own Ldata blocks; the reuse and conflict of layouts are left to layout-data, which judges them by fingerprint within one scope; this package keeps no table of its own.
 
-- 构造方法 `new Modbus_Emulator(descriptions, scope)` 的 `descriptions` 不变，仍是编译好的 `Description` 或其列表；`scope` 缺省改为 `modbus_emulator`，不再取已绑定的登记域或用时间构成名称；登记域为 `get_scope(scope) ?? create_scope(scope)`，描述由一次 `scope.load` 装入：布局名与结构都相同的布局复用，同名而结构不同、或结构相同而名称不同是错误。
-- 布局持有其 ldata 的名字（layout-data 的 issue#yxhoe1w3）。`stop()` 用 `delete_ldata` 把块名交还给布局；构造在装入之后失败时也交还。因此同一份描述在先前的模拟器 `stop()` 后，可以在同一登记域中再次构造；需要同时运行时，各实例用不同的登记域名。
-- 布局有微小差异的多型号设备：同名而结构不同的布局放进不同的登记域，由调用方给出不同的 `scope`；都用缺省登记域时报错，不会绑错。
-- 调用方通过实例的 `scope`、`layouts` 属性取得它的登记域和布局；`layouts` 的键顺序无意义。
+- In the constructor `new Modbus_Emulator(descriptions, scope)`, `descriptions` is unchanged, still a compiled `Description` or a list of them; `scope` defaults to `modbus_emulator` instead of taking the bound scope or a name built from the time; the scope is `get_scope(scope) ?? create_scope(scope)`, and the descriptions are loaded by one `scope.load`: layouts with the same name and the same structure are reused; the same name with a different structure, or the same structure with a different name, is an error.
+- A layout holds the names of its ldata (layout-data issue#yxhoe1w3). `stop()` returns the block names to the layouts with `delete_ldata`; a construction that fails after loading returns them too. So the same description can be constructed again in the same scope after the earlier emulator is `stop()`ped; when they must run at the same time, each instance uses a different scope name.
+- Device models whose layouts differ slightly: layouts with the same name but different structures go into different scopes, with different `scope`s given by the caller; using the default scope for all of them reports an error instead of binding the wrong one.
+- The caller obtains an instance's scope and layouts through its `scope` and `layouts` properties; the key order of `layouts` has no meaning.
 
-不采用的做法：
+Rejected approaches:
 
-- 布局特征值（各描述 `layouts` 与 `item_tables` 合并后的哈希）加进程内的特征值表、无 `scope` 时以 `s` 加特征值前 8 位命名登记域：layout-data 的 issue#qpupna3c 让登记域只由代码决定，自动生成的名字调用方拿不到；布局的复用 layout-data 已按单个布局的指纹在登记域内完成，本包重复实现没有意义。
-- 保留包级绑定，只交还块名：同一进程中仍不能用不同的登记域分开同名而结构不同的布局，多型号设备的问题不解决。
-- 新增 `close()` 专门交还块名，`stop()` 只停止服务：`stop()` 已是模拟器结束服务的时机，交还块名后数据块仍可用，`start()` 可以再次服务它们，不需要另一个方法。
+- A layout signature (a hash of the merged `layouts` and `item_tables` of the descriptions) plus an in-process signature table, naming the scope `s` followed by the first 8 characters of the signature when there is no `scope`: layout-data issue#qpupna3c lets only the code decide the scope, and the caller cannot get an automatically generated name; layout-data already reuses layouts by the fingerprint of each layout within a scope, so reimplementing it in this package is pointless.
+- Keeping the package-level binding and only returning block names: layouts with the same name but different structures still cannot be separated by different scopes in one process, so the device-model problem is not solved.
+- Adding a `close()` dedicated to returning block names, with `stop()` only stopping the servers: `stop()` is already the moment the emulator ends its service; after the block names are returned the data blocks remain usable and `start()` can serve them again, so no other method is needed.
 
-## 裁定
+## Decision
 
-接受，按解决提案实施。包级绑定使同一份带布局的描述在一个进程中只能构造一次，与“一个实例绑定一套布局”的设计意图不符。原先按布局特征值自动选择登记域的方案，随 layout-data 改为由代码选择登记域（issue#qpupna3c）而取消：登记域由构造参数指定，缺省为 `modbus_emulator`，布局的复用由 layout-data 在登记域内完成，`stop()` 和装入之后的构造失败交还块名，使同一份描述可以再次构造。
+Accepted and implemented as proposed. The package-level binding allows a description with layouts to be constructed only once per process, contrary to the design intent that "one instance binds one set of layouts". The earlier plan of choosing the scope automatically by a layout signature is dropped, since layout-data now lets the code choose the scope (issue#qpupna3c): the scope is given by the constructor parameter, defaulting to `modbus_emulator`; layout reuse is done by layout-data within the scope; `stop()` and a construction failing after loading return the block names, so the same description can be constructed again.

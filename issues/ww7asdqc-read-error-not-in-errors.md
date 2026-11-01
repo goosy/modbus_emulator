@@ -2,26 +2,26 @@
 id: ww7asdqc
 opened: 2026-10-17T23:58:10.000Z
 closed: 2026-10-23T14:07:46.000Z
-title: 读取错误不在 errors 中
+title: Read errors are not in errors
 status: fixed       # open | accepted | fixed | rejected | wontfix
 fixed_in: [a14a08c]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title: 问题描述
-proposal_title: 解决提案
-decision_title: 裁定
+problem_title:
+proposal_title:
+decision_title:
 ---
 
-## 问题描述
+## Problem
 
-位置：`src/emulator.js` 中 `readFileSync(item, "utf8")`。
+Location: `readFileSync(item, "utf8")` in `src/emulator.js`.
 
-文件不存在时抛出原始的 `ENOENT`，没有 `errors` 属性，与“汇总所有违规一次性抛出”的约定不一致。
+When the file does not exist, the raw `ENOENT` is thrown without an `errors` property, inconsistent with the rule "collect all violations and throw them at once".
 
-## 解决提案
+## Proposal
 
-文件不存在等读取错误也收入 `errors`。
+Collect read errors such as a missing file in `errors` as well.
 
-## 裁定
+## Decision
 
-问题成立，按解决提案修复：读取错误以 `cannot read the file: <原始消息>` 收入 `errors`，多个文件时带文件名前缀。
+The issue holds; fixed as proposed: read errors are collected in `errors` as `cannot read the file: <original message>`, prefixed with the file name when there are several files.
