@@ -65,9 +65,15 @@ describe("Modbus_Emulator description", () => {
 	test("creates an Ldata per block and attaches it to its unit", () => {
 		const emulator = make(`
 blocks:
-  - { name: pump, unit_id: 1, layout: PUMP }
-  - { name: setting, unit_id: 1, layout: SETTING, start: 400 }
-  - { name: other, unit_id: 2, layout: PUMP }
+  - { name: pump, layout: PUMP }
+  - { name: setting, layout: SETTING }
+  - { name: other, layout: PUMP }
+units:
+  - unit_id: 1
+    blocks:
+      pump: {}
+      setting: { start: 400 }
+  - { unit_id: 2, endian: LE, blocks: { other: {} } }
 servers:
   - { protocol: tcp, port: 1502 }
   - { protocol: rtu_over_tcp, port: 1503 }
@@ -78,17 +84,18 @@ servers:
 		assert.equal(emulator.block("pump").id, 7);
 		assert.equal(emulator.block("setting").limit, 100);
 		assert.deepEqual(emulator.unit_map.unit_ids, [1, 2]);
-		assert.equal(emulator.unit_map.segments(1).length, 2);
+		assert.deepEqual(emulator.unit_map.segments(1).map(({ block, start }) => [block.name, start]), [["pump", 0], ["setting", 400]]);
+		assert.deepEqual([1, 2].map((id) => emulator.unit_map.get_endian(id)), ["BE", "LE"]);
 		assert.deepEqual(emulator.servers.map((server) => server.protocol), ["tcp", "rtu_over_tcp", "rtu"]);
 	});
 
 	test("layout-data reports the name and the layout of the blocks, naming the file", () => {
 		const file = write_file(`${HEADER}
 blocks:
-  - { unit_id: 3, layout: PUMP }
-  - { name: b, unit_id: 1, layout: NONE }
-  - { name: c, unit_id: 1, layout: PUMP }
-  - { name: c, unit_id: 2, layout: PUMP }
+  - { layout: PUMP }
+  - { name: b, layout: NONE }
+  - { name: c, layout: PUMP }
+  - { name: c, layout: PUMP }
 servers:
   - { protocol: tcp, port: 1502 }
 `);
@@ -108,8 +115,11 @@ servers:
 	test("reports every violation of the blocks and the servers at once", () => {
 		const errors = errors_of(`
 blocks:
-  - { name: a, unit_id: 300, layout: PUMP }
-  - { name: c, unit_id: 1, layout: PUMP, start: 3 }
+  - { name: a, layout: PUMP }
+  - { name: c, layout: PUMP }
+units:
+  - { unit_id: 300, blocks: { a: {} } }
+  - { unit_id: 1, blocks: { c: { start: 3 } } }
 servers:
   - { protocol: udp, port: 1 }
   - { protocol: rtu, port: 5 }
@@ -126,19 +136,71 @@ servers:
 			"servers[3]: parity must be one of none, odd, even",
 			"servers[3]: data_bits must be one of 5, 6, 7, 8",
 			"servers[3]: stop_bits must be one of 1, 1.5, 2",
-			"blocks[0]: unit_id must be an integer from 0 to 255",
-			"blocks[1]: start must be an even non-negative byte offset",
+			"units[0]: unit_id must be an integer from 0 to 255",
+			"units[1].blocks.c: start must be an even non-negative byte offset",
 		]);
+	});
+
+	test("reports every violation of the units at once", () => {
+		const errors = errors_of(`
+blocks:
+  - { name: a, layout: PUMP }
+  - { name: b, layout: PUMP }
+  - { name: c, layout: PUMP }
+  - { name: d, layout: PUMP }
+units:
+  - { unit_id: 1, endian: MIDDLE, blocks: { a: {}, x: {} }, name: one }
+  - { unit_id: 1, blocks: { b: { start: 8, length: 2 }, a: { start: 16 } } }
+  - { unit_id: 2, blocks: {} }
+  - { unit_id: 3, blocks: [c] }
+  - { unit_id: 4, blocks: { c: null } }
+  - 5
+servers:
+  - { protocol: tcp, port: 1502 }
+`);
+
+		assert.deepEqual(errors, [
+			"units[0]: unknown key name",
+			"units[0]: endian must be one of BE, LE, BEBS, LEBS",
+			"units[0].blocks.x: the description of the unit has no block x",
+			"units[1]: unit 1 is already declared by units[0]",
+			"units[1].blocks.b: unknown key length",
+			"units[1].blocks.a: block a is already placed by units[0].blocks.a",
+			"units[2]: blocks must be a non-empty mapping from block names to placements",
+			"units[3]: blocks must be a non-empty mapping from block names to placements",
+			"units[4].blocks.c: a placement must be a mapping, {} for none of start and offset",
+			"units[5]: a unit entry must be a mapping",
+			"blocks[2]: block c is placed by no unit",
+			"blocks[3]: block d is placed by no unit",
+		]);
+	});
+
+	test("a unit places only the blocks of its own description", () => {
+		const other = write_file(`${HEADER}blocks:\n  - { name: b, layout: PUMP }\nunits:\n  - { unit_id: 2, blocks: { a: {}, b: {} } }`);
+		const file = write_file(`${HEADER}blocks:\n  - { name: a, layout: PUMP }`);
+
+		assert.throws(() => new Modbus_Emulator(`emulator_test_${++scope_seq}`).load([file, other]), (e) => {
+			assert.deepEqual(e.errors, [
+				`${other}: units[0].blocks.a: the description of the unit has no block a`,
+				`${file}: blocks[0]: block a is placed by no unit`,
+			]);
+			return true;
+		});
 	});
 
 	test("a service on a serial bus that answers unit 0 or 248..255 emits warnings", () => {
 		const warnings = [];
 		make(`
 blocks:
-  - { name: a, unit_id: 0, layout: PUMP }
-  - { name: b, unit_id: 1, layout: PUMP }
-  - { name: c, unit_id: 248, layout: PUMP }
-  - { name: d, unit_id: 255, layout: PUMP }
+  - { name: a, layout: PUMP }
+  - { name: b, layout: PUMP }
+  - { name: c, layout: PUMP }
+  - { name: d, layout: PUMP }
+units:
+  - { unit_id: 0, blocks: { a: {} } }
+  - { unit_id: 1, blocks: { b: {} } }
+  - { unit_id: 248, blocks: { c: {} } }
+  - { unit_id: 255, blocks: { d: {} } }
 servers:
   - { protocol: tcp, port: 1502 }
   - { protocol: rtu_over_tcp, port: 1503 }
@@ -160,8 +222,11 @@ servers:
 	test("a server answers the units of its unit_ids, the others all units", () => {
 		const emulator = make(`
 blocks:
-  - { name: a, unit_id: 1, layout: PUMP }
-  - { name: b, unit_id: 2, layout: PUMP }
+  - { name: a, layout: PUMP }
+  - { name: b, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: {} } }
+  - { unit_id: 2, blocks: { b: {} } }
 servers:
   - { protocol: tcp, port: 1502, unit_ids: [1] }
   - { protocol: rtu, port: COM_TEST, unit_ids: [2] }
@@ -177,7 +242,9 @@ servers:
 	test("unit_ids must be valid and name units that have a block", () => {
 		const errors = errors_of(`
 blocks:
-  - { name: a, unit_id: 1, layout: PUMP }
+  - { name: a, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: {} } }
 servers:
   - { protocol: tcp, port: 1502, unit_ids: [] }
   - { protocol: tcp, port: 1503, unit_ids: 1 }
@@ -195,33 +262,45 @@ servers:
 	test("the blocks of one unit may not overlap", () => {
 		const errors = errors_of(`
 blocks:
-  - { name: a, unit_id: 1, layout: PUMP }
-  - { name: b, unit_id: 1, layout: PUMP, start: 4 }
-  - { name: c, unit_id: 2, layout: PUMP, start: 4 }
-  - { name: d, unit_id: 1, layout: PUMP, start: 8 }
+  - { name: a, layout: PUMP }
+  - { name: b, layout: PUMP }
+  - { name: c, layout: PUMP }
+  - { name: d, layout: PUMP }
+units:
+  - unit_id: 1
+    blocks:
+      a: {}
+      b: { start: 4 }
+      d: { start: 8 }
+  - { unit_id: 2, blocks: { c: { start: 4 } } }
 servers:
   - { protocol: tcp, port: 1502 }
 `);
 
-		assert.deepEqual(errors, ["blocks[1]: unit 1: bytes 4..11 of block b overlap bytes 0..7 of block a"]);
+		assert.deepEqual(errors, ["units[0].blocks.b: unit 1: bytes 4..11 of block b overlap bytes 0..7 of block a"]);
 	});
 
 	test("offset must be even", () => {
 		const errors = errors_of(`
 blocks:
-  - { name: a, unit_id: 1, layout: PUMP, offset: 1 }
+  - { name: a, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: { offset: 1 } } }
 servers:
   - { protocol: tcp, port: 1502 }
 `);
 
-		assert.deepEqual(errors, ["blocks[0]: offset must be an even non-negative byte offset"]);
+		assert.deepEqual(errors, ["units[0].blocks.a: offset must be an even non-negative byte offset"]);
 	});
 
-	test("an unknown key of a block or a server is an error", () => {
+	test("an unknown key of a block or a server is an error, and a block has no key of this package", () => {
 		const errors = errors_of(`
 blocks:
-  - { name: a, unitid: 1, unit_id: 1, layout: PUMP }
-  - { name: b, unit_id: 2, layout: PUMP, sart: 4 }
+  - { name: a, unit_id: 1, layout: PUMP }
+  - { name: b, layout: PUMP, start: 4 }
+units:
+  - { unit_id: 1, blocks: { a: {} } }
+  - { unit_id: 2, blocks: { b: {} } }
 servers:
   - { protocol: tcp, port: 1502, baud_rate: 9600 }
   - { protocol: rtu, port: COM_TEST, host: 0.0.0.0 }
@@ -230,15 +309,17 @@ servers:
 		assert.deepEqual(errors, [
 			"servers[0]: unknown key baud_rate",
 			"servers[1]: unknown key host",
-			"blocks[0]: unknown key unitid",
-			"blocks[1]: unknown key sart",
+			"blocks[0]: unknown key unit_id",
+			"blocks[1]: unknown key start",
 		]);
 	});
 
 	test("a TCP port is from 1 to 65535", () => {
 		const errors = errors_of(`
 blocks:
-  - { name: a, unit_id: 1, layout: PUMP }
+  - { name: a, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: {} } }
 servers:
   - { protocol: tcp, port: 99999 }
   - { protocol: rtu_over_tcp, port: -1 }
@@ -251,7 +332,9 @@ servers:
 	test("two servers may not use the same address or serial port", () => {
 		const errors = errors_of(`
 blocks:
-  - { name: a, unit_id: 1, layout: PUMP }
+  - { name: a, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: {} } }
 servers:
   - { protocol: tcp }
   - { protocol: rtu_over_tcp, host: 0.0.0.0, port: 502 }
@@ -268,7 +351,9 @@ servers:
 	test("the same port on different hosts may repeat", () => {
 		const emulator = make(`
 blocks:
-  - { name: a, unit_id: 1, layout: PUMP }
+  - { name: a, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: {} } }
 servers:
   - { protocol: tcp, host: 127.0.0.1, port: 1502 }
   - { protocol: tcp, host: 0.0.0.0, port: 1502 }
@@ -281,7 +366,9 @@ servers:
 		const missing = join(dir, "missing.yaml");
 		const file = write_file(`${HEADER}
 blocks:
-  - { name: a, unit_id: 1, layout: PUMP }
+  - { name: a, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: {} } }
 servers:
   - { protocol: tcp, port: 1502 }
 `);
@@ -300,7 +387,7 @@ servers:
 
 describe("Modbus_Emulator sources", () => {
 	const SERVERS = "servers:\n  - { protocol: tcp, port: 1502 }";
-	const blocks_of = (name, unit_id) => `blocks:\n  - { name: ${name}, unit_id: ${unit_id}, layout: PUMP }`;
+	const blocks_of = (name, unit_id) => `blocks:\n  - { name: ${name}, layout: PUMP }\nunits:\n  - { unit_id: ${unit_id}, blocks: { ${name}: {} } }`;
 	const errors_of_load = (sources) => {
 		try {
 			new Modbus_Emulator(`emulator_test_${++scope_seq}`).load(sources);
@@ -330,14 +417,14 @@ describe("Modbus_Emulator sources", () => {
 	});
 
 	test("with several sources an error names its source: a file by its path, a Description by its place", () => {
-		const file = write_file(`${HEADER}blocks:\n  - { name: a, unit_id: 300, layout: PUMP }`);
-		const url = pathToFileURL(write_file(`${HEADER}blocks:\n  - { name: b, unit_id: 301, layout: PUMP }`));
-		const description = yaml(`${HEADER}blocks:\n  - { name: c, unit_id: 302, layout: PUMP }\n${SERVERS}`);
+		const file = write_file(`${HEADER}${blocks_of("a", 300)}`);
+		const url = pathToFileURL(write_file(`${HEADER}${blocks_of("b", 301)}`));
+		const description = yaml(`${HEADER}${blocks_of("c", 302)}\n${SERVERS}`);
 
 		assert.deepEqual(errors_of_load([file, url, description]), [
-			`${file}: blocks[0]: unit_id must be an integer from 0 to 255`,
-			`${join(dir, `emulator_${file_seq}.yaml`)}: blocks[1]: unit_id must be an integer from 0 to 255`,
-			"description #3: blocks[2]: unit_id must be an integer from 0 to 255",
+			`${file}: units[0]: unit_id must be an integer from 0 to 255`,
+			`${join(dir, `emulator_${file_seq}.yaml`)}: units[1]: unit_id must be an integer from 0 to 255`,
+			"description #3: units[2]: unit_id must be an integer from 0 to 255",
 		]);
 	});
 
@@ -355,7 +442,8 @@ describe("Modbus_Emulator sources", () => {
 		const object = {
 			layouts: ["ONE"],
 			item_tables: { ONE: [{ name: "a", type: "UInt", offset: 0, init_value: 5 }] },
-			blocks: [{ name: "one", unit_id: 4, layout: "ONE" }],
+			blocks: [{ name: "one", layout: "ONE" }],
+			units: [{ unit_id: 4, blocks: { one: {} } }],
 			servers: [{ protocol: "tcp", port: 1502 }],
 		};
 		const emulator = new Modbus_Emulator(`emulator_test_${++scope_seq}`);
@@ -370,7 +458,9 @@ describe("Modbus_Emulator scope", () => {
 	test("the blocks are created from the layouts loaded into the scope", () => {
 		const emulator = make(`
 blocks:
-  - { name: pump, unit_id: 1, layout: PUMP }
+  - { name: pump, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { pump: {} } }
 servers:
   - { protocol: tcp, port: 1502 }
 `);
@@ -386,7 +476,9 @@ servers:
 x-common: &pump PUMP
 scope: ignored
 blocks:
-  - { name: pump, unit_id: 1, layout: *pump }
+  - { name: pump, layout: *pump }
+units:
+  - { unit_id: 1, blocks: { pump: {} } }
 servers:
   - { protocol: tcp, port: 1502 }
 `);
@@ -404,7 +496,9 @@ describe("Modbus_Emulator service", () => {
 	async function start(t) {
 		const emulator = make(`
 blocks:
-  - { name: pump, unit_id: 1, layout: PUMP }
+  - { name: pump, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { pump: {} } }
 servers:
   - { protocol: tcp, host: ${HOST}, port: 1502 }
 `);
@@ -440,7 +534,9 @@ servers:
 		t.after(() => new Promise((resolve) => holder.close(resolve)));
 		const emulator = make(`
 blocks:
-  - { name: pump, unit_id: 1, layout: PUMP }
+  - { name: pump, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { pump: {} } }
 servers:
   - { protocol: tcp, host: ${HOST}, port: ${taken === 1502 ? 1503 : 1502} }
   - { protocol: tcp, host: ${HOST}, port: ${taken} }
@@ -511,8 +607,11 @@ servers:
 	test("two servers share the blocks and each answers only its units", async (t) => {
 		const emulator = make(`
 blocks:
-  - { name: a, unit_id: 1, layout: PUMP }
-  - { name: b, unit_id: 2, layout: PUMP }
+  - { name: a, layout: PUMP }
+  - { name: b, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: {} } }
+  - { unit_id: 2, blocks: { b: {} } }
 servers:
   - { protocol: tcp, host: ${HOST}, port: 1502, unit_ids: [1] }
   - { protocol: rtu_over_tcp, host: ${HOST}, port: 1503, unit_ids: [1, 2] }
@@ -542,7 +641,9 @@ servers:
 		const unmapped = [];
 		const emulator = make(`
 blocks:
-  - { name: a, unit_id: 1, layout: PUMP }
+  - { name: a, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: {} } }
 servers:
   - { protocol: tcp, host: ${HOST}, port: 1502 }
   - { protocol: tcp, host: ${HOST}, port: 1503 }
@@ -568,7 +669,9 @@ servers:
 		const events = [];
 		const emulator = make(`
 blocks:
-  - { name: a, unit_id: 1, layout: PUMP }
+  - { name: a, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: {} } }
 servers:
   - { protocol: tcp, host: ${HOST}, port: 1502 }
 `);
@@ -594,7 +697,9 @@ servers:
 		const errors = [];
 		const emulator = make(`
 blocks:
-  - { name: a, unit_id: 1, layout: PUMP }
+  - { name: a, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: {} } }
 servers:
   - { protocol: tcp, host: ${HOST}, port: 1502 }
 `);
@@ -624,7 +729,9 @@ describe("layout-data forwarded by the package", () => {
 	test("the forwarded Ldata is the class of the blocks, and the scopes are the ones in use", () => {
 		const emulator = make(`
 blocks:
-  - { name: pump, unit_id: 1, layout: PUMP }
+  - { name: pump, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { pump: {} } }
 servers:
   - { protocol: tcp, port: 1502 }
 `);

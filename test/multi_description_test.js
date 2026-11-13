@@ -19,7 +19,9 @@ writeFileSync(path("blocks.yaml"), `
 imports: [layouts.yaml]
 layouts: [PUMP]
 blocks:
-  - { name: pump_1, unit_id: 1, layout: PUMP }
+  - { name: pump_1, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { pump_1: {} } }
 `);
 writeFileSync(path("servers.yaml"), `
 layouts: [ONE]
@@ -27,7 +29,9 @@ item_tables:
   ONE:
     - { name: a, type: UInt, offset: 0, init_value: 5 }
 blocks:
-  - { name: one, unit_id: 2, layout: ONE }
+  - { name: one, layout: ONE }
+units:
+  - { unit_id: 2, blocks: { one: {} } }
 servers:
   - { protocol: tcp, port: 1502 }
 `);
@@ -49,12 +53,14 @@ test("an error names its file when there are several", () => {
 imports: [layouts.yaml]
 layouts: [PUMP]
 blocks:
-  - { name: x, unit_id: 300, layout: PUMP }
+  - { name: x, layout: PUMP }
+units:
+  - { unit_id: 300, blocks: { x: {} } }
 `);
 	assert.throws(
 		() => new Modbus_Emulator("descriptions_bad").load([path("servers.yaml"), path("bad.yaml")]),
 		(e) => {
-			assert.deepEqual(e.errors, [`${path("bad.yaml")}: blocks[1]: unit_id must be an integer from 0 to 255`]);
+			assert.deepEqual(e.errors, [`${path("bad.yaml")}: units[1]: unit_id must be an integer from 0 to 255`]);
 			return true;
 		},
 	);
@@ -63,7 +69,9 @@ blocks:
 test("a block names a layout of its own file", () => {
 	writeFileSync(path("foreign.yaml"), `
 blocks:
-  - { name: x, unit_id: 3, layout: PUMP }
+  - { name: x, layout: PUMP }
+units:
+  - { unit_id: 3, blocks: { x: {} } }
 `);
 	assert.throws(
 		() => new Modbus_Emulator("descriptions_foreign").load([path("layouts.yaml"), path("foreign.yaml"), path("servers.yaml")]),
@@ -79,7 +87,9 @@ test("a block name given in two files is an error naming them", () => {
 imports: [layouts.yaml]
 layouts: [PUMP]
 blocks:
-  - { name: pump_1, unit_id: 3, layout: PUMP }
+  - { name: pump_1, layout: PUMP }
+units:
+  - { unit_id: 3, blocks: { pump_1: {} } }
 `);
 	assert.throws(
 		() => new Modbus_Emulator("descriptions_again").load([path("blocks.yaml"), path("again.yaml"), path("servers.yaml")]),

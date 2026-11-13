@@ -30,7 +30,13 @@ item_tables:
     - { name: pressure, type: Real, offset: 32, init_value: 1.5 }
 
 blocks:
-  - { name: pump_1, unit_id: 1, layout: PUMP }
+  - { name: pump_1, layout: PUMP }
+
+units:
+  - unit_id: 1
+    endian: BE # the byte order of the device: BE (default), LE, BEBS or LEBS
+    blocks:
+      pump_1: { start: 0 } # the byte of the unit where the block starts
 
 servers:
   - { protocol: tcp, host: 0.0.0.0, port: 1502 }
@@ -50,7 +56,9 @@ const pump = emulator.block("pump_1"); // a Ldata of layout-data
 await emulator.stop();
 ```
 
-`load` takes description files, or `Description`s compiled in code with ``yaml`...` `` or ``desc_file`...` ``, mixed in a list as needed: an object of the shape of a description is compiled with `yaml(JSON.stringify(object))`. Invalid sources throw an `Error`; its `errors` property lists all violations, and the failed `load` changes nothing. A later `load` is checked against what the emulator already has (block names, overlaps, ports), and `start()` starts only the services that are not running yet.
+`load` takes description files, or `Description`s compiled in code with ``yaml`...` `` or ``desc_file`...` ``, mixed in a list as needed: an object of the shape of a description is compiled with `yaml(JSON.stringify(object))`. Invalid sources throw an `Error`; its `errors` property lists all violations, and the failed `load` changes nothing. A later `load` is checked against what the emulator already has (block names, units, ports), and `start()` starts only the services that are not running yet.
+
+A block entry only defines a block. A unit entry stands for a device: it gives the byte order of the device and places blocks of its own description in the unit, each at most once, and every block of a description is placed by one of its units. A unit is declared by one `load`.
 
 A block names a layout of its own description file; the description may take the item tables of another file with `imports: [common.yaml]` and list the layout under `layouts`. The descriptions are loaded into a [layout-data scope](https://github.com/goosy/layout-data/blob/main/doc/spec-layout.md), apart from the layouts of your code and of other libraries. The scope is chosen in code, by the argument of the constructor, `modbus_emulator` by default, and created when it does not exist. In a scope a layout of the same name and structure is shared, and a layout of the same name and another structure is an error: load such descriptions into another scope. The block names are held by their layouts until `stop()` gives them back, so another emulator can load the same description in a scope once the earlier emulator stopped.
 
@@ -70,6 +78,7 @@ item_tables:
 const pump = scope.get_layout("PUMP").create_ldata("pump_1");
 
 const unit_map = new Unit_Map();
+unit_map.set_endian(1, "BE"); // the default
 unit_map.attach_unit(1, pump, 0, 0);
 
 const server = create_tcp_server(unit_map, { port: 1502 });
@@ -99,8 +108,9 @@ emulator.on("unmapped", ({ kind, unit_id, addr }) => console.warn(`unmapped ${ki
 
 ## Address mapping
 
-- Register `addr` is byte `addr * 2` of the unit, big-endian. Holding and input registers share the same content.
-- Coil `addr` is bit `addr % 8` of byte `addr >> 3`.
+- A block keeps its content in big-endian; a unit serves the IO buffer of each block in the byte order of the unit, the device byte order of layout-data.
+- Register `addr` is byte `addr * 2` of the unit. Holding and input registers share the same content.
+- Coil `addr` is bit `addr % 8` of byte `addr >> 3` of the unit.
 - Addresses with no block read as 0 / false and ignore writes (warned once per address).
 
 See [doc/spec.md](doc/spec.md) for the full specification and [doc/design.md](doc/design.md) for the implementation. Chinese editions: [doc/spec.zh-CN.md](doc/spec.zh-CN.md), [doc/design.zh-CN.md](doc/design.zh-CN.md).

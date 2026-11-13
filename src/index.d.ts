@@ -1,7 +1,7 @@
 import type { Buffer } from "node:buffer";
 import type { EventEmitter } from "node:events";
 import type { Socket } from "node:net";
-import type { Description, Ldata, Layout, Layout_Scope } from "layout-data";
+import type { Description, Endian, Ldata, Layout, Layout_Scope } from "layout-data";
 
 export { Ldata, Ltag, create_scope, get_scope, yaml, desc_file } from "layout-data";
 export type {
@@ -88,7 +88,7 @@ export interface Serial_Options {
 	name?: string;
 }
 
-/** A byte range [start, end) of a unit, mapped to the bytes of a block from `offset`. */
+/** A byte range [start, end) of a unit, mapped to the bytes of the IO buffer of a block from `offset`. */
 export interface Unit_Segment {
 	readonly block: Ldata;
 	readonly start: number;
@@ -101,10 +101,17 @@ export class Unit_Map {
 	readonly unit_ids: number[];
 	/** The segments of a unit sorted by start; empty for a unit without block. */
 	segments(unit_id: number): readonly Unit_Segment[];
-	/** The block that holds a byte of a unit and the byte offset in it; null for an unmapped byte. */
+	/** The block that holds a byte of a unit and the byte offset in its IO buffer; null for an unmapped byte. */
 	resolve(unit_id: number, byte: number): { block: Ldata, offset: number } | null;
 	/** @throws {RangeError} When start or offset is not an even non-negative integer. */
 	attach_unit(unit_id: number, block: Ldata, start?: number, offset?: number): void;
+	/**
+	 * Sets the byte order of a unit, `BE` until it is set.
+	 * @throws {RangeError} For a unit id out of 0..255 or another byte order.
+	 */
+	set_endian(unit_id: number, endian: Endian): void;
+	/** Gets the byte order of a unit. */
+	get_endian(unit_id: number): Endian;
 }
 
 export function create_handler(unit_map: Unit_Map): Modbus_Handler;

@@ -2,6 +2,10 @@
 // es-modbus server handler that serves them. Writes go through the Ldata
 // write methods, so that changes are detected or notified by the Ldata; reads
 // go through read_bytes and read_bit. The bytes of a Ldata are never reached directly.
+//
+// A unit serves the IO buffer of each block in the byte order of the unit
+// (doc/spec.md 3): the bytes of the unit are IO bytes, mapped to the bytes of the
+// block by the table of the segment.
 
 import { Buffer } from "node:buffer";
 import { EventEmitter } from "node:events";
@@ -9,36 +13,93 @@ import { EventEmitter } from "node:events";
 // the most unmapped addresses reported by a handler, which bounds the set that remembers them
 const MAX_UNMAPPED_REPORTS = 1024;
 
+/** The device byte orders of layout-data (its check_endian is internal). */
+export const ENDIANS = ["BE", "LE", "BEBS", "LEBS"];
+
+const DEFAULT_ENDIAN = "BE";
+
 // the bytes of the register being written; write_bytes copies them at once
 const REGISTER_BYTES = new Uint8Array(2);
 
-const NOT_MAPPED = Object.freeze({ block: null, offset: -1 });
+// the table of each segment of a unit whose byte order is not BE: io_to_block[j] is the byte
+// of the block served at the IO byte j of the segment. A BE segment has none.
+const io_tables = new WeakMap();
 
-// return.offset: the byte offset in the block
-const get_register_info = (addr, unit_map, unit_id) => unit_map.resolve(unit_id, addr * 2) ?? NOT_MAPPED;
-
-const get_coil_info = (addr, unit_map, unit_id) => {
-	const place = unit_map.resolve(unit_id, addr >> 3);
-	return place ? { ...place, bit_mask: 1 << (addr % 8) } : NOT_MAPPED;
+/** Builds or drops the table of a segment for a byte order. */
+const set_io_table = (segment, endian) => {
+	if (endian === DEFAULT_ENDIAN) {
+		io_tables.delete(segment);
+		return;
+	}
+	// block byte i is the IO byte table[i]
+	const table = segment.block.layout.io_index_table(endian);
+	const io_to_block = new Int32Array(table.length);
+	for (let i = 0; i < table.length; i++) io_to_block[table[i]] = i;
+	io_tables.set(segment, io_to_block);
 };
+
+/** The segment that holds a byte of a unit and the IO offset of the byte in its block, or null. */
+const locate = (unit_map, unit_id, byte) => {
+	const segments = unit_map.segments(unit_id);
+	// the last segment that starts at or before byte
+	let low = 0;
+	let high = segments.length;
+	while (low < high) {
+		const middle = (low + high) >> 1;
+		if (segments[middle].start <= byte) low = middle + 1;
+		else high = middle;
+	}
+	const segment = segments[low - 1];
+	if (segment === undefined || byte >= segment.end) return null;
+	return { segment, offset: byte - segment.start + segment.offset };
+};
+
+const NOT_MAPPED = Object.freeze({ block: null, offset: -1, swapped: false });
+
+/**
+ * Locates a register: the block, the offset in it of the register of the block that holds its
+ * two bytes, and whether the two bytes are swapped (doc/design.md 2).
+ */
+const get_register_info = (addr, unit_map, unit_id) => {
+	const place = locate(unit_map, unit_id, addr * 2);
+	if (place === null) return NOT_MAPPED;
+	const { segment: { block }, offset } = place;
+	const table = io_tables.get(place.segment);
+	if (table === undefined) return { block, offset, swapped: false };
+	const first = table[offset];
+	const second = table[offset + 1];
+	return { block, offset: Math.min(first, second), swapped: first > second };
+};
+
+/** Locates a coil: the block, the offset in it of the byte that holds the coil, and its bit mask. */
+const get_coil_info = (addr, unit_map, unit_id) => {
+	const place = locate(unit_map, unit_id, addr >> 3);
+	if (place === null) return NOT_MAPPED;
+	const table = io_tables.get(place.segment);
+	const offset = table === undefined ? place.offset : table[place.offset];
+	return { block: place.segment.block, offset, bit_mask: 1 << (addr % 8) };
+};
+
+/** The value of a register from its two bytes of a block at index, swapped or not. */
+const decode = (bytes, index, swapped) => (swapped ? bytes.readUInt16LE(index) : bytes.readUInt16BE(index));
 
 /**
  * Splits the registers of one request into runs: consecutive registers held by one block at
- * consecutive offsets. An unmapped register is passed to `report` and belongs to no run.
- * run.index: the index of its first register in the request.
+ * consecutive offsets, all swapped or all not. An unmapped register is passed to `report` and
+ * belongs to no run. run.index: the index of its first register in the request.
  */
 const register_runs = (addr, quantity, unit_map, unit_id, report) => {
 	const runs = [];
 	let run = null;
 	for (let i = 0; i < quantity; i++) {
-		const { block, offset } = get_register_info(addr + i, unit_map, unit_id);
+		const { block, offset, swapped } = get_register_info(addr + i, unit_map, unit_id);
 		if (block == null) {
 			report(addr + i);
 			run = null;
-		} else if (run?.block === block && run.offset + run.count * 2 === offset) {
+		} else if (run?.block === block && run.swapped === swapped && run.offset + run.count * 2 === offset) {
 			run.count++;
 		} else {
-			run = { block, offset, index: i, count: 1 };
+			run = { block, offset, swapped, index: i, count: 1 };
 			runs.push(run);
 		}
 	}
@@ -113,12 +174,12 @@ export function create_handler(unit_map) {
 	};
 
 	const read_register = (kind) => (addr, unit_id) => {
-		const { block, offset } = get_register_info(addr, unit_map, unit_id);
+		const { block, offset, swapped } = get_register_info(addr, unit_map, unit_id);
 		if (block == null) {
 			report_unmapped(kind, addr, unit_id);
 			return 0;
 		}
-		return block.read_bytes(offset, 2).readUInt16BE(0);
+		return decode(block.read_bytes(offset, 2), 0, swapped);
 	};
 
 	const report_listener_error = (block, error) => handler.emit("listener_error", { block, error });
@@ -129,9 +190,9 @@ export function create_handler(unit_map) {
 		const report = (unmapped) => report_unmapped(kind, unmapped, unit_id);
 		const runs = register_runs(addr, quantity, unit_map, unit_id, report);
 		in_transactions(blocks_of(runs), () => {
-			for (const { block, offset, index, count } of runs) {
+			for (const { block, offset, swapped, index, count } of runs) {
 				const bytes = block.read_bytes(offset, count * 2);
-				for (let i = 0; i < count; i++) values[index + i] = bytes.readUInt16BE(i * 2);
+				for (let i = 0; i < count; i++) values[index + i] = decode(bytes, i * 2, swapped);
 			}
 		}, report_listener_error);
 		return values;
@@ -143,13 +204,13 @@ export function create_handler(unit_map) {
 		get_input_registers: read_registers("input_register"),
 		get_holding_registers: read_registers("holding_register"),
 		set_holding_register: (addr, value, unit_id) => {
-			const { block, offset } = get_register_info(addr, unit_map, unit_id);
+			const { block, offset, swapped } = get_register_info(addr, unit_map, unit_id);
 			if (block == null) {
 				report_unmapped("holding_register", addr, unit_id);
 				return;
 			}
-			REGISTER_BYTES[0] = value >> 8;
-			REGISTER_BYTES[1] = value & 0xff;
+			REGISTER_BYTES[swapped ? 1 : 0] = value >> 8;
+			REGISTER_BYTES[swapped ? 0 : 1] = value & 0xff;
 			block.write_bytes(offset, REGISTER_BYTES);
 		},
 
@@ -158,9 +219,12 @@ export function create_handler(unit_map) {
 			const report = (unmapped) => report_unmapped("holding_register", unmapped, unit_id);
 			const runs = register_runs(addr, values.length, unit_map, unit_id, report);
 			in_transactions(blocks_of(runs), () => {
-				for (const { block, offset, index, count } of runs) {
+				for (const { block, offset, swapped, index, count } of runs) {
 					const bytes = Buffer.alloc(count * 2);
-					for (let i = 0; i < count; i++) bytes.writeUInt16BE(values[index + i], i * 2);
+					for (let i = 0; i < count; i++) {
+						if (swapped) bytes.writeUInt16LE(values[index + i], i * 2);
+						else bytes.writeUInt16BE(values[index + i], i * 2);
+					}
 					block.write_bytes(offset, bytes);
 				}
 			}, report_listener_error);
@@ -232,15 +296,44 @@ const check_even = (value, name) => {
 
 /**
  * The data blocks placed per unit id. A unit holds segments: the byte range [start, end) of the
- * unit maps to the bytes of a block from its byte `offset`. The segments of a unit are kept
- * sorted by `start`.
+ * unit maps to the IO buffer of a block from its byte `offset`, in the byte order of the unit.
+ * The segments of a unit are kept sorted by `start`.
  */
 export class Unit_Map {
 	#units = new Map();
+	// the byte order of each unit set by set_endian
+	#endians = new Map();
 
 	/** The unit ids that have a segment, in the order of their first attachment. */
 	get unit_ids() {
 		return [...this.#units.keys()];
+	}
+
+	/**
+	 * Sets the byte order of a unit, before or after its blocks are attached.
+	 *
+	 * @param {number} unit_id - The ID of the unit, from 0 to 255.
+	 * @param {import('layout-data').Endian} endian - BE, LE, BEBS or LEBS.
+	 * @return {void}
+	 * @throws {RangeError} For another unit id or byte order.
+	 */
+	set_endian(unit_id, endian) {
+		if (!Number.isInteger(unit_id) || unit_id < 0 || unit_id > 255) {
+			throw new RangeError(`unit_id must be an integer from 0 to 255, got ${unit_id}`);
+		}
+		if (!ENDIANS.includes(endian)) throw new RangeError(`unknown byte order ${endian}: use ${ENDIANS.join(", ")}`);
+		this.#endians.set(unit_id, endian);
+		for (const segment of this.segments(unit_id)) set_io_table(segment, endian);
+	}
+
+	/**
+	 * Gets the byte order of a unit, BE until it is set.
+	 *
+	 * @param {number} unit_id
+	 * @return {import('layout-data').Endian}
+	 */
+	get_endian(unit_id) {
+		return this.#endians.get(unit_id) ?? DEFAULT_ENDIAN;
 	}
 
 	/**
@@ -259,26 +352,17 @@ export class Unit_Map {
 	 *
 	 * @param {number} unit_id
 	 * @param {number} byte - The byte offset in the unit.
-	 * @return {{block: import('layout-data').Ldata, offset: number} | null} The block and the byte offset in it; null for an unmapped byte.
+	 * @return {{block: import('layout-data').Ldata, offset: number} | null} The block and the byte offset in its IO
+	 *     buffer; null for an unmapped byte.
 	 */
 	resolve(unit_id, byte) {
-		const segments = this.segments(unit_id);
-		// the last segment that starts at or before byte
-		let low = 0;
-		let high = segments.length;
-		while (low < high) {
-			const middle = (low + high) >> 1;
-			if (segments[middle].start <= byte) low = middle + 1;
-			else high = middle;
-		}
-		const segment = segments[low - 1];
-		if (segment === undefined || byte >= segment.end) return null;
-		return { block: segment.block, offset: byte - segment.start + segment.offset };
+		const place = locate(this, unit_id, byte);
+		return place && { block: place.segment.block, offset: place.offset };
 	}
 
 	/**
 	 * Attaches a block to a unit: bytes [start, start + block.size - offset) of the unit map to
-	 * the bytes of the block from `offset`.
+	 * the bytes of the IO buffer of the block from `offset`, in the byte order of the unit.
 	 *
 	 * @param {number} unit_id - The ID of the unit.
 	 * @param {import('layout-data').Ldata} block - The data block.
@@ -302,6 +386,7 @@ export class Unit_Map {
 			const bytes = ({ start, end }) => `bytes ${start}..${end - 1}`;
 			throw new Error(`unit ${unit_id}: ${bytes(segment)} of block ${block.name} overlap ${bytes(other)} of block ${other.block.name}`);
 		}
+		set_io_table(segment, this.get_endian(unit_id));
 		segments.splice(index, 0, segment);
 		this.#units.set(unit_id, segments);
 	}

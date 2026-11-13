@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
 import { create_scope, desc_file, get_scope } from "layout-data";
-import { Unit_Map, create_handler } from "./unit_map.js";
+import { ENDIANS, Unit_Map, create_handler } from "./unit_map.js";
 import { create_tcp_server, create_rtu_server } from "./server.js";
 
 /** The scope the descriptions are loaded into when the caller names none (doc/spec.md 4). */
@@ -32,7 +32,9 @@ const RESERVED_UNITS = [248, 249, 250, 251, 252, 253, 254, 255];
 
 // the events of the handler, forwarded unchanged
 const HANDLER_EVENTS = ["unmapped", "unmapped_limit", "listener_error"];
-const BLOCK_KEYS = ["name", "unit_id", "layout", "start", "offset"];
+const BLOCK_KEYS = ["name", "layout"];
+const UNIT_KEYS = ["unit_id", "endian", "blocks"];
+const PLACEMENT_KEYS = ["start", "offset"];
 const TCP_SERVER_KEYS = ["protocol", "unit_ids", "host", "port"];
 const SERVER_KEYS = {
 	tcp: TCP_SERVER_KEYS,
@@ -61,12 +63,22 @@ function address_of({ protocol, host = "0.0.0.0", port = 502 }) {
 	return `${protocol === "rtu_over_tcp" ? "rtu" : "modbus"}://${host}:${port}`;
 }
 
+/** Whether a value is a mapping of a description: an object that is not a list. */
+function is_mapping(value) {
+	return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 /** Reports each key of a mapping entry that is not in the allowed list. */
 function check_keys(entry, allowed, where, errors) {
-	if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return;
+	if (!is_mapping(entry)) return;
 	for (const key of Object.keys(entry)) {
 		if (!allowed.includes(key)) errors.push(`${where}: unknown key ${key}`);
 	}
+}
+
+/** Whether a value is an even non-negative byte offset. */
+function is_even_offset(value) {
+	return Number.isInteger(value) && value >= 0 && value % 2 === 0;
 }
 
 /**
@@ -120,8 +132,8 @@ export class Modbus_Emulator extends EventEmitter {
 	 *
 	 * @param {string|URL|import('layout-data').Description|Array<string|URL|import('layout-data').Description>} sources
 	 *     A source or a list of them, each a description file (a path or a file: URL, compiled with `desc_file`) or a
-	 *     Description (compiled by `desc_file` or `yaml`): the `blocks` and `servers` of the sources are joined in
-	 *     order, and the descriptions are loaded together into the scope.
+	 *     Description (compiled by `desc_file` or `yaml`): the `blocks`, `units` and `servers` of the sources are
+	 *     joined in order, and the descriptions are loaded together into the scope.
 	 * @return {{blocks: Map<string, import('layout-data').Ldata>, servers: import('es-modbus').Modbus_Server[]}}
 	 *     The blocks and the servers this call added.
 	 * @throws {Error} With `errors`, every violation found, when the descriptions are not valid.
@@ -138,8 +150,12 @@ export class Modbus_Emulator extends EventEmitter {
 		// with several sources, a violation names its source
 		const prefixes = labels.map((label) => (items.length > 1 ? `${label}: ` : ""));
 		const compiled = [];
-		// the entries are numbered after the blocks and the servers of the earlier loads
+		// for each description read, its blocks by name
+		const sources_read = [];
+		// the entries are numbered after the blocks, the units and the servers of the earlier loads: each unit
+		// entry loaded is one unit of the unit map
 		const block_entries = [];
+		const unit_entries = [];
 		const server_entries = [];
 		for (const [index, item] of items.entries()) {
 			const prefix = prefixes[index];
@@ -158,13 +174,27 @@ export class Modbus_Emulator extends EventEmitter {
 				continue;
 			}
 			compiled.push(description);
+			// the blocks of this description by name, which its units place
+			const source = { blocks: new Map() };
 			for (const entry of description.blocks) {
 				// the size of the layout compiled by desc_file or yaml is the one of the layout the scope will hold
 				const { size } = description.layouts[entry.layout];
-				block_entries.push({ entry, size, where: `${prefix}blocks[${this.blocks.size + block_entries.length}]` });
+				const where = `${prefix}blocks[${this.blocks.size + block_entries.length}]`;
+				block_entries.push({ entry, where });
+				source.blocks.set(entry.name, { size, where });
 			}
 			// a Description keeps the root keys of this package as they are parsed
-			const { servers } = description;
+			const { units, servers } = description;
+			if (units !== undefined) {
+				if (!Array.isArray(units)) errors.push(`${prefix}the root key \`units\` must be a list`);
+				else {
+					for (const entry of units) {
+						const where = `${prefix}units[${this.unit_map.unit_ids.length + unit_entries.length}]`;
+						unit_entries.push({ entry, where, source });
+					}
+				}
+			}
+			sources_read.push(source);
 			if (servers === undefined) continue;
 			if (!Array.isArray(servers)) errors.push(`${prefix}the root key \`servers\` must be a list`);
 			else {
@@ -182,9 +212,10 @@ export class Modbus_Emulator extends EventEmitter {
 		const checked_servers = this.#read_servers(server_entries, errors);
 		const before = errors.length;
 		this.#check_blocks(block_entries, errors);
-		// a block that cannot be placed fails here: the overlaps are not checked then
+		const checked_units = this.#read_units(unit_entries, sources_read, errors);
+		// an entry that cannot be placed fails here: the overlaps are not checked then
 		if (errors.length > before) fail();
-		const unit_map = this.#place_blocks(block_entries, errors);
+		const unit_map = this.#place_blocks(block_entries, checked_units, errors);
 		this.#check_server_units(checked_servers, unit_map, errors);
 		if (errors.length > 0) fail();
 
@@ -195,12 +226,16 @@ export class Modbus_Emulator extends EventEmitter {
 		const units_before = this.unit_map.unit_ids;
 		Object.assign(this.layouts, loaded.layouts);
 		const blocks = new Map();
-		for (const { entry: { name, unit_id, start = 0, offset = 0 } } of block_entries) {
+		for (const { entry: { name } } of block_entries) {
 			const block = loaded.ldata[name];
-			this.unit_map.attach_unit(unit_id, block, start, offset);
 			this.blocks.set(name, block);
 			this.#held.add(name);
 			blocks.set(name, block);
+		}
+		// the byte order first, so the table of each segment is built once, at its attachment
+		for (const { unit_id, endian, placements } of checked_units) {
+			if (endian !== undefined) this.unit_map.set_endian(unit_id, endian);
+			for (const { name, start, offset } of placements) this.unit_map.attach_unit(unit_id, blocks.get(name), start, offset);
 		}
 		// the servers without unit_ids answer the units added by this load too
 		const { unit_ids } = this.unit_map;
@@ -256,47 +291,105 @@ export class Modbus_Emulator extends EventEmitter {
 	}
 
 	/**
-	 * Checks the keys of the blocks that belong to this package. layout-data checked `name` and `layout` when it
-	 * compiled the descriptions, and checks the block names across the descriptions when it loads them.
+	 * Checks that a block entry has only the keys of layout-data: its placement is written in the unit entries.
+	 * layout-data checked `name` and `layout` when it compiled the descriptions, and checks the block names across
+	 * the descriptions when it loads them.
 	 */
 	#check_blocks(entries, errors) {
-		for (const { entry, where } of entries) {
-			check_keys(entry, BLOCK_KEYS, where, errors);
-			const { unit_id, start = 0, offset = 0 } = entry;
+		for (const { entry, where } of entries) check_keys(entry, BLOCK_KEYS, where, errors);
+	}
+
+	/**
+	 * Reads the unit entries of a load: each unit declared once in the emulator, and each block of a description
+	 * placed once by a unit of the same description.
+	 *
+	 * @return {Array<{unit_id: number, endian: string|undefined, placements: Array<{name: string, size: number,
+	 *     start: number, offset: number, where: string}>}>} The units, in the order of their entries.
+	 */
+	#read_units(entries, sources, errors) {
+		const result = [];
+		// the entry of each unit id of this load
+		const declared = new Map();
+		// the placement of each block placed, by block entry
+		const placed = new Map();
+		for (const { entry, where, source } of entries) {
+			if (!is_mapping(entry)) {
+				errors.push(`${where}: a unit entry must be a mapping`);
+				continue;
+			}
+			check_keys(entry, UNIT_KEYS, where, errors);
+			const { unit_id, endian, blocks } = entry;
 			if (!Number.isInteger(unit_id) || unit_id < 0 || unit_id > 255) {
 				errors.push(`${where}: unit_id must be an integer from 0 to 255`);
+			} else if (declared.has(unit_id)) {
+				errors.push(`${where}: unit ${unit_id} is already declared by ${declared.get(unit_id)}`);
+			} else if (this.unit_map.segments(unit_id).length > 0) {
+				errors.push(`${where}: unit ${unit_id} is already loaded`);
+			} else declared.set(unit_id, where);
+			if (endian !== undefined && !ENDIANS.includes(endian)) {
+				errors.push(`${where}: endian must be one of ${ENDIANS.join(", ")}`);
 			}
-			if (!Number.isInteger(start) || start < 0 || start % 2 !== 0) {
-				errors.push(`${where}: start must be an even non-negative byte offset`);
+			if (!is_mapping(blocks) || Object.keys(blocks).length === 0) {
+				errors.push(`${where}: blocks must be a non-empty mapping from block names to placements`);
+				continue;
 			}
-			if (!Number.isInteger(offset) || offset < 0 || offset % 2 !== 0) {
-				errors.push(`${where}: offset must be an even non-negative byte offset`);
+			const placements = [];
+			for (const [name, placement] of Object.entries(blocks)) {
+				const at = `${where}.blocks.${name}`;
+				if (!is_mapping(placement)) {
+					errors.push(`${at}: a placement must be a mapping, {} for none of start and offset`);
+					continue;
+				}
+				check_keys(placement, PLACEMENT_KEYS, at, errors);
+				const { start = 0, offset = 0 } = placement;
+				if (!is_even_offset(start)) errors.push(`${at}: start must be an even non-negative byte offset`);
+				if (!is_even_offset(offset)) errors.push(`${at}: offset must be an even non-negative byte offset`);
+				const block = source.blocks.get(name);
+				if (block === undefined) {
+					errors.push(`${at}: the description of the unit has no block ${name}`);
+					continue;
+				}
+				if (placed.has(block)) {
+					errors.push(`${at}: block ${name} is already placed by ${placed.get(block)}`);
+					continue;
+				}
+				placed.set(block, at);
+				placements.push({ name, size: block.size, start, offset, where: at });
+			}
+			result.push({ unit_id, endian, placements });
+		}
+		for (const source of sources) {
+			for (const [name, block] of source.blocks) {
+				if (!placed.has(block)) errors.push(`${block.where}: block ${name} is placed by no unit`);
 			}
 		}
+		return result;
 	}
 
 	/**
 	 * Places the blocks of a load, by name and size, on a copy of the unit map, before anything is loaded: a block
-	 * name of the emulator is an error, and an overlap in a unit is the error of `attach_unit`.
+	 * name of the emulator is an error, and an overlap in a unit is the error of `attach_unit`. The copy sets no byte
+	 * order: the byte ranges do not depend on it.
 	 *
 	 * @return {Unit_Map} The copy, with the blocks of the emulator and the blocks of the load placed.
 	 */
-	#place_blocks(entries, errors) {
+	#place_blocks(block_entries, units, errors) {
 		const unit_map = new Unit_Map();
 		for (const unit_id of this.unit_map.unit_ids) {
 			for (const { block, start, offset } of this.unit_map.segments(unit_id)) {
 				unit_map.attach_unit(unit_id, block, start, offset);
 			}
 		}
-		for (const { entry: { name, unit_id, start = 0, offset = 0 }, size, where } of entries) {
-			if (this.blocks.has(name)) {
-				errors.push(`${where}: the emulator already has a block ${name}`);
-				continue;
-			}
-			try {
-				unit_map.attach_unit(unit_id, { name, size }, start, offset);
-			} catch (error) {
-				errors.push(`${where}: ${error.message}`);
+		for (const { entry: { name }, where } of block_entries) {
+			if (this.blocks.has(name)) errors.push(`${where}: the emulator already has a block ${name}`);
+		}
+		for (const { unit_id, placements } of units) {
+			for (const { name, size, start, offset, where } of placements) {
+				try {
+					unit_map.attach_unit(unit_id, { name, size }, start, offset);
+				} catch (error) {
+					errors.push(`${where}: ${error.message}`);
+				}
 			}
 		}
 		return unit_map;

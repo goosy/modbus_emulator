@@ -12,7 +12,12 @@ item_tables:
     - { name: pressure, type: Real, offset: 32, init_value: 1.5, comment: "Outlet pressure" }
 
 blocks:
-  - { name: pump_1, unit_id: 1, layout: PUMP }
+  - { name: pump_1, layout: PUMP }
+
+units:
+  - unit_id: 1
+    blocks:
+      pump_1: {}
 
 servers:
   - { protocol: tcp, host: 0.0.0.0, port: 1502 }

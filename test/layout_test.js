@@ -28,7 +28,8 @@ test("a layout error is reported, and nothing is loaded", () => {
 				{ name: "a", type: "UInt", offset: 16, init_value: 0 },
 			],
 		},
-		blocks: [{ name: "a", unit_id: 1, layout: "BAD" }],
+		blocks: [{ name: "a", layout: "BAD" }],
+		units: [{ unit_id: 1, blocks: { a: {} } }],
 		servers: SERVERS,
 	})), (e) => e.errors.length > 0 && e.errors.every((m) => m.includes("duplicated name")));
 	assert.throws(() => get_scope("layout_bad").get_layout("BAD"));
@@ -50,8 +51,11 @@ item_tables:
   ONE:
     - { name: a, type: UInt, offset: 0, init_value: 5 }
 blocks:
-  - { name: pump, unit_id: 1, layout: PUMP }
-  - { name: one, unit_id: 2, layout: ONE }
+  - { name: pump, layout: PUMP }
+  - { name: one, layout: ONE }
+units:
+  - { unit_id: 1, blocks: { pump: {} } }
+  - { unit_id: 2, blocks: { one: {} } }
 servers:
   - { protocol: tcp, port: 1502 }
 `);
@@ -71,7 +75,8 @@ test("another layout of a name in the scope is an error", () => {
 	const other = write_description({
 		layouts: ["PUMP"],
 		item_tables: { PUMP: [{ name: "id", type: "UInt", offset: 0, init_value: 8 }] },
-		blocks: [{ name: "other", unit_id: 1, layout: "PUMP" }],
+		blocks: [{ name: "other", layout: "PUMP" }],
+		units: [{ unit_id: 1, blocks: { other: {} } }],
 		servers: SERVERS,
 	});
 	assert.throws(() => new Modbus_Emulator("plant").load(other), (e) => {
@@ -84,15 +89,16 @@ test("an overlap of the blocks fails before loading: the scope is left as it was
 	const description = {
 		layouts: ["ONE"],
 		item_tables: { ONE: [{ name: "a", type: "UInt", offset: 0, init_value: 5 }] },
-		blocks: [{ name: "x", unit_id: 1, layout: "ONE" }, { name: "y", unit_id: 1, layout: "ONE" }],
+		blocks: [{ name: "x", layout: "ONE" }, { name: "y", layout: "ONE" }],
+		units: [{ unit_id: 1, blocks: { x: {}, y: {} } }],
 		servers: SERVERS,
 	};
 	const emulator = new Modbus_Emulator("overlap");
 	assert.throws(() => emulator.load(write_description(description)),
-		(e) => e.errors.length === 1 && e.errors[0].startsWith("blocks[1]: unit 1: "));
+		(e) => e.errors.length === 1 && e.errors[0].startsWith("units[0].blocks.y: unit 1: "));
 	assert.throws(() => emulator.scope.get_layout("ONE"), /ONE/);
 
-	description.blocks[1].start = 2;
+	description.units[0].blocks.y.start = 2;
 	emulator.load(write_description(description));
 	assert.deepEqual([...emulator.blocks.keys()], ["x", "y"]);
 });

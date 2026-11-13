@@ -23,7 +23,8 @@ const description_of = (layout, init_value, block = "block") => {
 	writeFileSync(file, JSON.stringify({
 		layouts: [layout],
 		item_tables: { [layout]: [{ name: "id", type: "UInt", offset: 0, init_value }] },
-		blocks: [{ name: block, unit_id: 1, layout }],
+		blocks: [{ name: block, layout }],
+		units: [{ unit_id: 1, blocks: { [block]: {} } }],
 		servers: SERVERS,
 	}));
 	const description = desc_file(file);
