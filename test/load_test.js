@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { Modbus_Emulator } from "./target.js";
-import { HOST, listening_port } from "./helpers.js";
+import { HOST, ephemeral, listening_port } from "./helpers.js";
 
 // An emulator loads descriptions any number of times, each load all or nothing, checked against what the
 // earlier loads gave
@@ -56,7 +56,7 @@ test("the constructor loads nothing, and each load adds blocks and servers", () 
 	const first = emulator.load(description_of({ blocks: [{ name: "x", unit_id: 1, layout: "ONE" }] }));
 	const second = emulator.load(description_of({
 		blocks: [{ name: "y", unit_id: 1, layout: "ONE", start: 2 }],
-		servers: [{ protocol: "tcp", port: 0 }],
+		servers: [{ protocol: "tcp", port: 1502 }],
 	}));
 
 	assert.deepEqual([...first.blocks.keys()], ["x"]);
@@ -70,7 +70,7 @@ test("the constructor loads nothing, and each load adds blocks and servers", () 
 
 test("a description of servers only, then one of blocks only", () => {
 	const emulator = new_emulator();
-	emulator.load(description_of({ servers: [{ protocol: "tcp", port: 0 }] }));
+	emulator.load(description_of({ servers: [{ protocol: "tcp", port: 1502 }] }));
 	const [server] = emulator.servers;
 	assert.equal(server.is_valid_unit_id(1), false);
 
@@ -80,7 +80,7 @@ test("a description of servers only, then one of blocks only", () => {
 
 test("the entries are numbered after the ones of the earlier loads", () => {
 	const emulator = new_emulator();
-	emulator.load(description_of({ blocks: [{ name: "x", unit_id: 1, layout: "ONE" }], servers: [{ protocol: "tcp", port: 0 }] }));
+	emulator.load(description_of({ blocks: [{ name: "x", unit_id: 1, layout: "ONE" }], servers: [{ protocol: "tcp", port: 1502 }] }));
 
 	assert.deepEqual(errors_of(emulator, description_of({
 		blocks: [{ name: "y", unit_id: 300, layout: "ONE" }],
@@ -89,20 +89,20 @@ test("the entries are numbered after the ones of the earlier loads", () => {
 		"servers[1]: protocol must be one of tcp, rtu_over_tcp, rtu",
 		"blocks[1]: unit_id must be an integer from 0 to 255",
 	]);
-	emulator.load(description_of({ servers: [{ protocol: "tcp", port: 0 }] }));
-	assert.equal(emulator.servers[1].name, "servers[1] (modbus://0.0.0.0:0)");
+	emulator.load(description_of({ servers: [{ protocol: "tcp", port: 1503 }] }));
+	assert.equal(emulator.servers[1].name, "servers[1] (modbus://0.0.0.0:1503)");
 });
 
 test("a failed load leaves the emulator and the scope as they were", () => {
 	const emulator = new_emulator();
-	emulator.load(description_of({ blocks: [{ name: "x", unit_id: 1, layout: "ONE" }], servers: [{ protocol: "tcp", port: 0 }] }));
+	emulator.load(description_of({ blocks: [{ name: "x", unit_id: 1, layout: "ONE" }], servers: [{ protocol: "tcp", port: 1502 }] }));
 	const unit_ids = emulator.servers[0].unit_ids;
 
 	// an overlap with a block of an earlier load, in a description of a layout new to the scope
 	assert.deepEqual(errors_of(emulator, description_of({
 		layout: "NEW",
 		blocks: [{ name: "y", unit_id: 2, layout: "NEW" }, { name: "z", unit_id: 1, layout: "NEW" }],
-		servers: [{ protocol: "tcp", port: 0 }],
+		servers: [{ protocol: "tcp", port: 1503 }],
 	})), ["blocks[2]: unit 1: bytes 0..1 of block z overlap bytes 0..1 of block x"]);
 
 	assert.throws(() => emulator.scope.get_layout("NEW"), /NEW/);
@@ -137,11 +137,11 @@ test("unit_ids names the units of the emulator once loaded", () => {
 	const emulator = new_emulator();
 	emulator.load(description_of({ blocks: [{ name: "x", unit_id: 1, layout: "ONE" }] }));
 
-	assert.deepEqual(errors_of(emulator, description_of({ servers: [{ protocol: "tcp", port: 0, unit_ids: [1, 2] }] })),
+	assert.deepEqual(errors_of(emulator, description_of({ servers: [{ protocol: "tcp", port: 1502, unit_ids: [1, 2] }] })),
 		["servers[0]: unit_ids has unit 2, which has no block"]);
 	emulator.load(description_of({
 		blocks: [{ name: "y", unit_id: 2, layout: "ONE" }],
-		servers: [{ protocol: "tcp", port: 0, unit_ids: [1, 2] }],
+		servers: [{ protocol: "tcp", port: 1502, unit_ids: [1, 2] }],
 	}));
 	assert.equal(emulator.servers[0].is_valid_unit_id(2), true);
 });
@@ -152,7 +152,7 @@ test("a server without unit_ids answers the units of the later loads, and warns 
 	emulator.on("warning", ({ server, message }) => warnings.push([server, message]));
 	emulator.load(description_of({
 		blocks: [{ name: "x", unit_id: 1, layout: "ONE" }],
-		servers: [{ protocol: "rtu", port: "COM_TEST" }, { protocol: "tcp", port: 0, unit_ids: [1] }],
+		servers: [{ protocol: "rtu", port: "COM_TEST" }, { protocol: "tcp", port: 1502, unit_ids: [1] }],
 	}));
 	const [rtu, tcp] = emulator.servers;
 	assert.deepEqual(warnings, []);
@@ -170,14 +170,16 @@ test("a server without unit_ids answers the units of the later loads, and warns 
 test("start() starts the servers that are not running", async (t) => {
 	const emulator = new_emulator();
 	t.after(() => emulator.stop());
-	emulator.load(description_of({ blocks: [{ name: "x", unit_id: 1, layout: "ONE" }], servers: [{ protocol: "tcp", host: HOST, port: 0 }] }));
+	emulator.load(description_of({ blocks: [{ name: "x", unit_id: 1, layout: "ONE" }], servers: [{ protocol: "tcp", host: HOST, port: 1502 }] }));
+	ephemeral(emulator.servers[0]);
 	await emulator.start();
 	const [first] = emulator.servers;
 	const port = listening_port(first);
 	const starts = [];
 	emulator.on("server_start", ({ server }) => starts.push(server));
 
-	emulator.load(description_of({ servers: [{ protocol: "tcp", host: HOST, port: 0 }] }));
+	emulator.load(description_of({ servers: [{ protocol: "tcp", host: HOST, port: 1503 }] }));
+	ephemeral(emulator.servers[1]);
 	await emulator.start();
 
 	assert.deepEqual(starts, [emulator.servers[1]]);

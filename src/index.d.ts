@@ -14,8 +14,10 @@ export interface Modbus_Server extends EventEmitter {
 	readonly name: string;
 	/** `tcp`, `rtu_over_tcp` or `rtu`. */
 	readonly protocol: "tcp" | "rtu_over_tcp" | "rtu";
-	/** The TCP port, or the serial port path. */
-	readonly port: number | string;
+	/** The address the server listens on; null for `rtu`. */
+	readonly host: string | null;
+	/** The TCP port; null for `rtu`. */
+	readonly port: number | null;
 	/** Whether the server answers a unit id. */
 	is_valid_unit_id(unit_id: number): boolean;
 	start(): Promise<unknown>;
@@ -66,7 +68,7 @@ export interface Modbus_Handler extends EventEmitter {
 export interface Server_Options {
 	/** The address to listen on; `0.0.0.0` by default. */
 	host?: string;
-	/** The port number; 502 by default, 0 lets the system choose one. */
+	/** The port number; 502 by default, from 1 to 65535. */
 	port?: number;
 	rtu?: boolean;
 	unit_ids?: number[];

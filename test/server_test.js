@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
 import { Unit_Map, create_tcp_server, create_rtu_server, create_handler } from "./target.js";
-import { HOST, listening_port } from "./helpers.js";
+import { HOST, ephemeral, listening_port, master_options } from "./helpers.js";
 
 const UNIT = 5;
 const OTHER_UNIT = 9; // never attached: the server answers exception 0x0B
@@ -55,7 +55,7 @@ async function start_server(t, options) {
 	const unit_map = new Unit_Map();
 	unit_map.attach_unit(UNIT, data, 0);
 	unit_map.attach_unit(UNIT, command, 400);
-	const server = create_tcp_server(unit_map, { host: HOST, port: 0, ...options });
+	const server = ephemeral(create_tcp_server(unit_map, { host: HOST, ...options }));
 	await server.start();
 	t.after(() => server.stop());
 	return { server, port: listening_port(server), data, command };
@@ -65,7 +65,7 @@ describe("create_tcp_server", () => {
 	/** Starts a server and an es-modbus client in the master role. */
 	async function setup(t, { rtu = false } = {}) {
 		const ctx = await start_server(t, { rtu });
-		const master = new Modbus_Client(HOST, { port: ctx.port, reconnect_time: 0, rtu });
+		const master = new Modbus_Client(master_options(ctx.port, rtu));
 		master.on("error", () => { });
 		t.after(() => master.disconnect());
 		return { ...ctx, master };
@@ -150,10 +150,10 @@ describe("create_tcp_server", () => {
 		unit_map.attach_unit(UNIT, fake_block(8), 0);
 		unit_map.attach_unit(OTHER_UNIT, fake_block(8), 0);
 		const connect = async (unit_ids) => {
-			const server = create_tcp_server(unit_map, { host: HOST, port: 0, unit_ids });
+			const server = ephemeral(create_tcp_server(unit_map, { host: HOST, unit_ids }));
 			await server.start();
 			t.after(() => server.stop());
-			const master = new Modbus_Client(HOST, { port: listening_port(server), reconnect_time: 0 });
+			const master = new Modbus_Client(master_options(listening_port(server)));
 			master.on("error", () => { });
 			t.after(() => master.disconnect());
 			return master;
@@ -171,10 +171,10 @@ describe("create_tcp_server", () => {
 	test("the default unit_ids are the units of the map when the server is created", async (t) => {
 		const unit_map = new Unit_Map();
 		unit_map.attach_unit(UNIT, fake_block(8), 0);
-		const server = create_tcp_server(unit_map, { host: HOST, port: 0 });
+		const server = ephemeral(create_tcp_server(unit_map, { host: HOST }));
 		await server.start();
 		t.after(() => server.stop());
-		const master = new Modbus_Client(HOST, { port: listening_port(server), reconnect_time: 0 });
+		const master = new Modbus_Client(master_options(listening_port(server)));
 		master.on("error", () => { });
 		t.after(() => master.disconnect());
 
@@ -196,7 +196,7 @@ describe("create_tcp_server", () => {
 		const unmapped = [];
 		const ctx = await start_server(t);
 		ctx.server.handler.on("unmapped", (event) => unmapped.push(event));
-		const master = new Modbus_Client(HOST, { port: ctx.port, reconnect_time: 0 });
+		const master = new Modbus_Client(master_options(ctx.port));
 		master.on("error", () => { });
 		t.after(() => master.disconnect());
 
@@ -222,9 +222,23 @@ describe("create_tcp_server", () => {
 	});
 
 	test("the name option names the server", () => {
-		const server = create_tcp_server(new Unit_Map(), { host: HOST, port: 0, name: "plant" });
+		const server = create_tcp_server(new Unit_Map(), { host: HOST, name: "plant" });
 
 		assert.equal(server.name, "plant");
+	});
+
+	test("host and port make the target of es-modbus, an IPv6 host in brackets", () => {
+		const server = create_tcp_server(new Unit_Map(), { host: "::1", port: 1502, rtu: true });
+
+		assert.equal(server.protocol, "rtu_over_tcp");
+		assert.equal(server.host, "::1");
+		assert.equal(server.port, 1502);
+	});
+
+	test("a port out of 1..65535 throws a RangeError", () => {
+		for (const port of [0, -1, 65536, 1.5, "502"]) {
+			assert.throws(() => create_tcp_server(new Unit_Map(), { port }), { name: "RangeError", message: `Invalid port: ${port}` });
+		}
 	});
 });
 
@@ -237,7 +251,7 @@ describe("create_rtu_server", () => {
 
 		assert.equal(server.protocol, "rtu");
 		assert.equal(server.is_tcp, false);
-		assert.equal(server.port, "COM_TEST");
+		assert.equal(server.port, null);
 		assert.ok(server.is_valid_unit_id(UNIT));
 		assert.ok(!server.is_valid_unit_id(OTHER_UNIT));
 	});

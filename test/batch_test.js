@@ -3,7 +3,7 @@ import { Buffer } from "node:buffer";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
 import { Unit_Map, create_handler, create_tcp_server, create_scope, yaml } from "./target.js";
-import { HOST, listening_port } from "./helpers.js";
+import { HOST, ephemeral, listening_port, master_options } from "./helpers.js";
 
 // The batch methods of the handler over real Ldata, whose transactions, events and `access`
 // are what is tested.
@@ -51,10 +51,10 @@ function make_unit() {
 /** Serves a unit of make_unit and returns a master of it. */
 async function serve(t) {
 	const unit = make_unit();
-	const server = create_tcp_server(unit.unit_map, { host: HOST, port: 0, handler: unit.handler });
+	const server = ephemeral(create_tcp_server(unit.unit_map, { host: HOST, handler: unit.handler }));
 	await server.start();
 	t.after(() => server.stop());
-	const master = new Modbus_Client(HOST, { port: listening_port(server), reconnect_time: 0 });
+	const master = new Modbus_Client(master_options(listening_port(server)));
 	master.on("error", () => { });
 	t.after(() => master.disconnect());
 	return { ...unit, master };

@@ -216,7 +216,7 @@ export class Modbus_Emulator extends EventEmitter {
 			for (const [name, field] of Object.entries(SERVER_EVENTS)) {
 				server.on(name, (arg) => this.emit(`server_${name}`, field ? { server, [field]: arg } : { server }));
 			}
-			if (address !== undefined) this.#addresses.set(address, where);
+			this.#addresses.set(address, where);
 			if (options.unit_ids === undefined) this.#all_unit_servers.push(server);
 			this.servers.push(server);
 			servers.push(server);
@@ -329,20 +329,17 @@ export class Modbus_Emulator extends EventEmitter {
 				address = server.port;
 			} else {
 				const { host = "0.0.0.0", port = 502 } = server;
-				if (!Number.isInteger(port) || port < 0 || port > 65535) {
-					errors.push(`${where}: port must be a TCP port number from 0 to 65535`);
+				if (!Number.isInteger(port) || port < 1 || port > 65535) {
+					errors.push(`${where}: port must be a TCP port number from 1 to 65535`);
 					continue;
 				}
-				// port 0 is chosen by the system, a different one each time
-				if (port !== 0) address = `${host}:${port}`;
+				address = `${host}:${port}`;
 			}
-			if (address !== undefined) {
-				if (used.has(address)) {
-					errors.push(`${where}: port ${address} is already used by ${used.get(address)}`);
-					continue;
-				}
-				used.set(address, where);
+			if (used.has(address)) {
+				errors.push(`${where}: port ${address} is already used by ${used.get(address)}`);
+				continue;
 			}
+			used.set(address, where);
 			const { unit_ids } = server;
 			if (unit_ids !== undefined && !(Array.isArray(unit_ids) && unit_ids.length > 0
 				&& unit_ids.every((id) => Number.isInteger(id) && id >= 0 && id <= 255))) {

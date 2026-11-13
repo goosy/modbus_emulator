@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
 import { Modbus_Emulator, Ldata, Ltag, create_scope, get_scope, yaml } from "./target.js";
-import { HOST, hold_port, listening_port } from "./helpers.js";
+import { HOST, ephemeral, hold_port, listening_port, master_options } from "./helpers.js";
 
 const dir = mkdtempSync(join(tmpdir(), "modbus-emulator-"));
 let file_seq = 0;
@@ -121,7 +121,7 @@ servers:
 		assert.deepEqual(errors, [
 			"servers[0]: protocol must be one of tcp, rtu_over_tcp, rtu",
 			"servers[1]: port must be a serial device path",
-			"servers[2]: port must be a TCP port number from 0 to 65535",
+			"servers[2]: port must be a TCP port number from 1 to 65535",
 			"servers[3]: baud_rate must be a positive integer",
 			"servers[3]: parity must be one of none, odd, even",
 			"servers[3]: data_bits must be one of 5, 6, 7, 8",
@@ -140,17 +140,17 @@ blocks:
   - { name: c, unit_id: 248, layout: PUMP }
   - { name: d, unit_id: 255, layout: PUMP }
 servers:
-  - { protocol: tcp, port: 0 }
-  - { protocol: rtu_over_tcp, port: 0 }
+  - { protocol: tcp, port: 1502 }
+  - { protocol: rtu_over_tcp, port: 1503 }
   - { protocol: rtu, port: COM_TEST }
   - { protocol: rtu, port: COM_OTHER, unit_ids: [1, 255] }
-  - { protocol: rtu_over_tcp, port: 0, unit_ids: [1] }
+  - { protocol: rtu_over_tcp, port: 1504, unit_ids: [1] }
 `, (warning) => warnings.push(warning));
 
 		assert.ok(warnings.every(({ server, message }) => message.startsWith(`${server.name}: `)));
 		assert.deepEqual(warnings.map(({ message }) => message), [
-			"servers[1] (rtu://0.0.0.0:0): unit 0 is the broadcast address of a serial bus, written but never answered",
-			"servers[1] (rtu://0.0.0.0:0): reserved units of a serial bus: 248, 255",
+			"servers[1] (rtu://0.0.0.0:1503): unit 0 is the broadcast address of a serial bus, written but never answered",
+			"servers[1] (rtu://0.0.0.0:1503): reserved units of a serial bus: 248, 255",
 			"servers[2] (serial://COM_TEST): unit 0 is the broadcast address of a serial bus, written but never answered",
 			"servers[2] (serial://COM_TEST): reserved units of a serial bus: 248, 255",
 			"servers[3] (serial://COM_OTHER): reserved units of a serial bus: 255",
@@ -235,18 +235,17 @@ servers:
 		]);
 	});
 
-	test("a TCP port is from 0 to 65535", () => {
+	test("a TCP port is from 1 to 65535", () => {
 		const errors = errors_of(`
 blocks:
   - { name: a, unit_id: 1, layout: PUMP }
 servers:
   - { protocol: tcp, port: 99999 }
   - { protocol: rtu_over_tcp, port: -1 }
+  - { protocol: tcp, port: 0 }
 `);
 
-		assert.equal(errors.length, 2, JSON.stringify(errors));
-		assert.match(errors.join("\n"), /servers\[0\]: port must be a TCP port number from 0 to 65535/);
-		assert.match(errors.join("\n"), /servers\[1\]: port must be a TCP port number from 0 to 65535/);
+		assert.deepEqual(errors, [0, 1, 2].map((i) => `servers[${i}]: port must be a TCP port number from 1 to 65535`));
 	});
 
 	test("two servers may not use the same address or serial port", () => {
@@ -266,18 +265,16 @@ servers:
 		]);
 	});
 
-	test("port 0 and the same port on different hosts may repeat", () => {
+	test("the same port on different hosts may repeat", () => {
 		const emulator = make(`
 blocks:
   - { name: a, unit_id: 1, layout: PUMP }
 servers:
-  - { protocol: tcp, port: 0 }
-  - { protocol: tcp, port: 0 }
   - { protocol: tcp, host: 127.0.0.1, port: 1502 }
   - { protocol: tcp, host: 0.0.0.0, port: 1502 }
 `);
 
-		assert.equal(emulator.servers.length, 4);
+		assert.equal(emulator.servers.length, 2);
 	});
 
 	test("a file that cannot be read is reported in errors", () => {
@@ -409,12 +406,13 @@ describe("Modbus_Emulator service", () => {
 blocks:
   - { name: pump, unit_id: 1, layout: PUMP }
 servers:
-  - { protocol: tcp, host: ${HOST}, port: 0 }
+  - { protocol: tcp, host: ${HOST}, port: 1502 }
 `);
+		ephemeral(emulator.servers[0]);
 		await emulator.start();
 		t.after(() => emulator.stop());
 		const port = listening_port(emulator.servers[0]);
-		const master = new Modbus_Client(HOST, { port, reconnect_time: 0 });
+		const master = new Modbus_Client(master_options(port));
 		master.on("error", () => { });
 		t.after(() => master.disconnect());
 		return { emulator, master, pump: emulator.block("pump") };
@@ -444,9 +442,10 @@ servers:
 blocks:
   - { name: pump, unit_id: 1, layout: PUMP }
 servers:
-  - { protocol: tcp, host: ${HOST}, port: 0 }
+  - { protocol: tcp, host: ${HOST}, port: ${taken === 1502 ? 1503 : 1502} }
   - { protocol: tcp, host: ${HOST}, port: ${taken} }
 `);
+		ephemeral(emulator.servers[0]);
 		t.after(() => emulator.stop());
 		let first_port;
 		emulator.servers[0].once("start", () => { first_port = listening_port(emulator.servers[0]); });
@@ -515,14 +514,15 @@ blocks:
   - { name: a, unit_id: 1, layout: PUMP }
   - { name: b, unit_id: 2, layout: PUMP }
 servers:
-  - { protocol: tcp, host: ${HOST}, port: 0, unit_ids: [1] }
-  - { protocol: rtu_over_tcp, host: ${HOST}, port: 0, unit_ids: [1, 2] }
+  - { protocol: tcp, host: ${HOST}, port: 1502, unit_ids: [1] }
+  - { protocol: rtu_over_tcp, host: ${HOST}, port: 1503, unit_ids: [1, 2] }
 `);
+		emulator.servers.forEach(ephemeral);
 		await emulator.start();
 		t.after(() => emulator.stop());
 		const [port_a, port_b] = emulator.servers.map(listening_port);
 		const connect = (port, rtu) => {
-			const master = new Modbus_Client(HOST, { port, rtu, reconnect_time: 0 });
+			const master = new Modbus_Client(master_options(port, rtu));
 			master.on("error", () => { });
 			t.after(() => master.disconnect());
 			return master;
@@ -544,14 +544,15 @@ servers:
 blocks:
   - { name: a, unit_id: 1, layout: PUMP }
 servers:
-  - { protocol: tcp, host: ${HOST}, port: 0 }
-  - { protocol: tcp, host: ${HOST}, port: 0 }
+  - { protocol: tcp, host: ${HOST}, port: 1502 }
+  - { protocol: tcp, host: ${HOST}, port: 1503 }
 `);
+		emulator.servers.forEach(ephemeral);
 		emulator.on("unmapped", (event) => unmapped.push(event));
 		await emulator.start();
 		t.after(() => emulator.stop());
 		const masters = emulator.servers.map(listening_port).map((port) => {
-			const master = new Modbus_Client(HOST, { port, reconnect_time: 0 });
+			const master = new Modbus_Client(master_options(port));
 			master.on("error", () => { });
 			t.after(() => master.disconnect());
 			return master;
@@ -569,20 +570,20 @@ servers:
 blocks:
   - { name: a, unit_id: 1, layout: PUMP }
 servers:
-  - { protocol: tcp, host: ${HOST}, port: 0 }
+  - { protocol: tcp, host: ${HOST}, port: 1502 }
 `);
-		const [server] = emulator.servers;
+		const [server] = emulator.servers.map(ephemeral);
 		for (const name of ["server_start", "server_socket_connect", "server_receive", "server_send", "server_stop"]) {
 			emulator.on(name, (event) => events.push([name, event]));
 		}
 		await emulator.start();
-		const master = new Modbus_Client(HOST, { port: listening_port(server), reconnect_time: 0 });
+		const master = new Modbus_Client(master_options(listening_port(server)));
 		master.on("error", () => { });
 		await master.read([3, 0, 1], 1);
 		master.disconnect();
 		await emulator.stop();
 
-		assert.equal(server.name, `servers[0] (modbus://${HOST}:0)`);
+		assert.equal(server.name, `servers[0] (modbus://${HOST}:1502)`);
 		assert.deepEqual(events.map(([name]) => name), ["server_start", "server_socket_connect", "server_receive", "server_send", "server_stop"]);
 		assert.ok(events.every(([, event]) => event.server === server));
 		assert.ok(Buffer.isBuffer(events[2][1].frame) && Buffer.isBuffer(events[3][1].frame));
@@ -595,7 +596,7 @@ servers:
 blocks:
   - { name: a, unit_id: 1, layout: PUMP }
 servers:
-  - { protocol: tcp, host: ${HOST}, port: 0 }
+  - { protocol: tcp, host: ${HOST}, port: 1502 }
 `);
 		const failure = new Error("boom");
 
@@ -611,7 +612,7 @@ servers:
 		await emulator.stop();
 		await emulator.start();
 
-		const retry = new Modbus_Client(HOST, { port: listening_port(emulator.servers[0]), reconnect_time: 0 });
+		const retry = new Modbus_Client(master_options(listening_port(emulator.servers[0])));
 		retry.on("error", () => { });
 		t.after(() => retry.disconnect());
 		assert.deepEqual(await retry.read([3, 0, 1], 1), Buffer.from([0, pump.id]));

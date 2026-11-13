@@ -9,18 +9,24 @@ import { create_handler } from "./unit_map.js";
  * @param {Unit_Map} unit_map - The data blocks served per unit id.
  * @param {Object} [options]
  * @param {string} [options.host='0.0.0.0'] - The address to listen on.
- * @param {number} [options.port=502] - The port number; 0 lets the system choose one.
+ * @param {number} [options.port=502] - The port number, from 1 to 65535.
  * @param {boolean} [options.rtu=false] - Use RTU framing on the accepted sockets (RTU-over-TCP).
  * @param {number[]} [options.unit_ids] - The unit ids this server answers; every unit of the unit map when omitted.
  * @param {Object} [options.handler] - The handler to serve, from `create_handler`; servers of one unit map can share it. Built from the unit map when omitted.
  * @param {string} [options.name] - The name of the server, which identifies it in events and errors; `Modbus_Server` by default.
  * @return {import('es-modbus').Modbus_Server} The server instance.
+ * @throws {RangeError} When port is not an integer from 1 to 65535.
  */
 export function create_tcp_server(unit_map, { host = "0.0.0.0", port = 502, rtu = false, unit_ids: _unit_ids, handler: _handler, name } = {}) {
 	if (unit_map === undefined || unit_map === null) throw new Error("unit_map is required");
+	// checked here: es-modbus reports a bad port of the host:port target as an invalid host
+	if (!Number.isInteger(port) || port < 1 || port > 65535) throw new RangeError(`Invalid port: ${port}`);
+	if (typeof host !== "string") throw new Error(`Invalid host: ${host}`);
 	const unit_ids = _unit_ids ?? unit_map.unit_ids;
 	const handler = _handler ?? create_handler(unit_map);
-	return new Modbus_Server(handler, { host, port, rtu, unit_id: unit_ids, name });
+	// an IPv6 host is written in brackets in the host:port target of es-modbus
+	const target = `${host.includes(":") ? `[${host}]` : host}:${port}`;
+	return new Modbus_Server(handler, { [rtu ? "rtu_over_tcp" : "tcp"]: target, unit_id: unit_ids, name });
 }
 
 /**
@@ -47,6 +53,6 @@ export function create_rtu_server(path, unit_map, { unit_ids: _unit_ids, handler
 	const { baud_rate, parity, data_bits, stop_bits } = serial;
 	const handler = _handler ?? create_handler(unit_map);
 	return new Modbus_Server(handler, {
-		port: path, baud_rate, parity, data_bits, stop_bits, unit_id: unit_ids, name,
+		serial: path, baud_rate, parity, data_bits, stop_bits, unit_id: unit_ids, name,
 	});
 }
