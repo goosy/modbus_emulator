@@ -34,13 +34,15 @@ describe("Unit_Map", () => {
 		assert.equal(unit_map.resolve(2, 0), null); // a unit without block
 	});
 
-	test("start and offset must be even non-negative integers", () => {
+	test("start and offset must be even non-negative integers, offset below the block size", () => {
 		const unit_map = new Unit_Map();
 
 		assert.throws(() => unit_map.attach_unit(1, block("a", 4), { start: 3 }), { name: "RangeError", message: /start must be an even/ });
 		assert.throws(() => unit_map.attach_unit(1, block("a", 4), { start: -2 }), /start must be an even/);
 		assert.throws(() => unit_map.attach_unit(1, block("a", 4), { start: 0, offset: 1 }), /offset must be an even/);
 		assert.throws(() => unit_map.attach_unit(1, block("a", 4), { start: 0, offset: 0.5 }), /offset must be an even/);
+		assert.throws(() => unit_map.attach_unit(1, block("a", 4), { offset: 4 }), { name: "RangeError", message: "block a: offset 4 must be below the block size 4" });
+		assert.throws(() => unit_map.attach_unit(1, block("a", 4), { offset: 16 }), /must be below the block size/);
 		assert.deepEqual(unit_map.unit_ids, []);
 	});
 

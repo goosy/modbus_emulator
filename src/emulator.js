@@ -365,6 +365,9 @@ export class Modbus_Emulator extends EventEmitter {
 					continue;
 				}
 				placed.set(block, at);
+				if (is_even_offset(offset) && offset >= block.size) {
+					errors.push(`${at}: offset ${offset} must be below the size ${block.size} of block ${name}`);
+				}
 				for (const error of readonly_errors(readonly, block.layout)) errors.push(`${at}: ${error}`);
 				placements.push({ name, size: block.size, start, offset, readonly, where: at });
 			}

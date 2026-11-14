@@ -544,12 +544,16 @@ export class Unit_Map {
 	 * @param {number} [options.offset=0] - The byte offset in the block, even.
 	 * @param {"none"|"all"|string[]} [options.readonly="none"] - All for the whole block, or the read-only tags.
 	 * @return {void}
-	 * @throws {RangeError} When start or offset is not an even non-negative integer, or readonly is not valid.
+	 * @throws {RangeError} When start or offset is not an even non-negative integer, offset is not below the
+	 *     block size, or readonly is not valid.
 	 * @throws {Error} When the bytes overlap the ones of another block of the unit.
 	 */
 	attach_unit(unit_id, block, { start = 0, offset = 0, readonly = READONLY_VALUES[0] } = {}) {
 		check_even(start, "start");
 		check_even(offset, "offset");
+		if (offset >= block.size) {
+			throw new RangeError(`block ${block.name}: offset ${offset} must be below the block size ${block.size}`);
+		}
 		const [error] = readonly_errors(readonly, block.layout);
 		if (error !== undefined) throw new RangeError(`block ${block.name}: ${error}`);
 		if (Array.isArray(readonly)) readonly = Object.freeze([...readonly]);

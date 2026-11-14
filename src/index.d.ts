@@ -117,7 +117,7 @@ export interface Unit_Segment {
 export interface Placement_Options {
 	/** The byte offset in the unit, even; 0 by default. */
 	start?: number;
-	/** The byte offset in the block, even; 0 by default. */
+	/** The byte offset in the block, even and below the block size; 0 by default. */
 	offset?: number;
 	/** `all` for the whole block, padding included, or a non-empty list of distinct tag names; `none` by default. */
 	readonly?: "none" | "all" | readonly string[];
@@ -131,7 +131,8 @@ export class Unit_Map {
 	/** The block that holds a byte of a unit and the byte offset in its IO buffer; null for an unmapped byte. */
 	resolve(unit_id: number, byte: number): { block: Ldata, offset: number } | null;
 	/**
-	 * @throws {RangeError} When start or offset is not an even non-negative integer, or readonly is not valid.
+	 * @throws {RangeError} When start or offset is not an even non-negative integer, offset is not below the
+	 *     block size, or readonly is not valid.
 	 * @throws {Error} When the bytes overlap the ones of another block of the unit.
 	 */
 	attach_unit(unit_id: number, block: Ldata, options?: Placement_Options): void;

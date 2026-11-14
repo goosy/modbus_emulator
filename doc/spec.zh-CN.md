@@ -56,7 +56,7 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, name })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
 - `name`：可选，`Modbus_Server` 的 `name`，在事件和错误中标明服务；es-modbus 的缺省值为 `Modbus_Server`；
 - `Unit_Map` / `create_handler(unit_map)`：单元表和 es-modbus 的服务端 handler，供不用描述的调用方（如控制器）自行组装。
-  - `attach_unit(unit_id, block, { start, offset, readonly })` 把数据块从其字节 `offset` 起放到单元的字节 `start` 处；选项对象及其中每一项都可省略。`start` 和 `offset` 缺省为 0，须为偶数非负整数，否则抛出 `RangeError`；`readonly`（§3）为 `none`（缺省）、`all`（整块只读），或该数据块布局中互不相同的 tag 名组成的非空列表，其他值抛出 `RangeError`；同一单元内各数据块的字节区间不得重叠，重叠时抛出 `Error`，指明两个数据块；
+  - `attach_unit(unit_id, block, { start, offset, readonly })` 把数据块从其字节 `offset` 起放到单元的字节 `start` 处；选项对象及其中每一项都可省略。`start` 和 `offset` 缺省为 0，须为偶数非负整数，且 `offset` 须小于数据块大小，否则抛出 `RangeError`；`readonly`（§3）为 `none`（缺省）、`all`（整块只读），或该数据块布局中互不相同的 tag 名组成的非空列表，其他值抛出 `RangeError`；同一单元内各数据块的字节区间不得重叠，重叠时抛出 `Error`，指明两个数据块；
   - `set_endian(unit_id, endian)` 设置单元的字节序（§3），未设置时为 `BE`；单元号不在 0..255 或字节序不是 §2 所列四种之一时抛出 `RangeError`；
   - `get_endian(unit_id)`：获取单元的字节序；
   - `set_unmapped_read(unit_id, value)` / `set_unmapped_write(unit_id, value)` 设置单元如何应答对其未映射地址的读和写（§3）：读取 `zero`（缺省）或 `refuse`，写入 `ignore`（缺省）或 `refuse`；单元号不在 0..255 或取值不在其中时抛出 `RangeError`。`get_unmapped_read(unit_id)` / `get_unmapped_write(unit_id)` 获取它们。与 `set_endian` 一样，可以在挂上该单元的数据块之前或之后调用；
@@ -133,7 +133,7 @@ servers:
 
 - `blocks[].name` 必须写明，是其布局的其他数据块、模拟器的其他数据块都未用过的字符串（layout-data 与本包）；`blocks[].layout` 是同一描述中的布局名；
 - `units[].unit_id` 必须写明，取值 0..255 的整数，不得与本次装入的其他单元条目或先前装入的单元重复：单元只在一次装入中声明，装入后不再改变。`units[].endian`（可选）是单元的字节序，取 `BE`、`LE`、`BEBS` 或 `LEBS`，缺省 `BE`（§3）。`units[].unmapped_read`（可选）取 `zero`（缺省）或 `refuse`，`units[].unmapped_write`（可选）取 `ignore`（缺省）或 `refuse`：单元如何应答对其未映射地址的读和写（§3）；
-- `units[].blocks` 必须写明，是非空对象，键是数据块名，值是该数据块的放置。放置有可选的 `start`（数据块在单元内的起始字节）和 `offset`（数据块从自身的第几个字节起对外提供），都是偶数非负整数，缺省为 0；`{}` 表示把整个数据块放在单元的字节 0 处。同一单元内各数据块的字节区间不得重叠；
+- `units[].blocks` 必须写明，是非空对象，键是数据块名，值是该数据块的放置。放置有可选的 `start`（数据块在单元内的起始字节）和 `offset`（数据块从自身的第几个字节起对外提供），都是偶数非负整数，缺省为 0，`offset` 须小于数据块大小，使放置至少提供一个寄存器；`{}` 表示把整个数据块放在单元的字节 0 处。同一单元内各数据块的字节区间不得重叠；
 - 放置可以有 `readonly`（§3）：`none`（缺省）；`all`，整块只读，包括填充位；或该数据块布局中的 tag 名组成的非空列表，列出的 tag 只读。布局中没有的名字、重复的名字是错误；同时列出组合字和它的耦合位是允许的。只读 tag 落在放置没有提供的部分（`offset` 之前）时没有效果；
   - 只读的点按 tag 声明，不按字节或寄存器区间：写描述的人以 tag 思考，区间要对照布局换算，布局一改就要跟着改；
 - 描述中的每个数据块都必须由本描述的单元条目放置，且只能放置一次：没有被放置、被放置两次，或由其他描述的单元条目放置，都是错误；

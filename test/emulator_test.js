@@ -293,6 +293,20 @@ servers:
 		assert.deepEqual(errors, ["units[0].blocks.a: offset must be an even non-negative byte offset"]);
 	});
 
+	test("offset must be below the size of the block", () => {
+		const errors = errors_of(`
+blocks:
+  - { name: a, layout: PUMP }
+  - { name: b, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: { offset: 8 }, b: { start: 16, offset: 6 } } }
+servers:
+  - { protocol: tcp, port: 1502 }
+`);
+
+		assert.deepEqual(errors, ["units[0].blocks.a: offset 8 must be below the size 8 of block a"]);
+	});
+
 	test("an unknown key of a block or a server is an error, and a block has no key of this package", () => {
 		const errors = errors_of(`
 blocks:
