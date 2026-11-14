@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.3.0 - 2026-11-14
+
+### Breaking changes
+
+- **Requires es-modbus 0.3.0.** A TCP port is from 1 to 65535: port 0 is rejected by `create_tcp_server` (a `RangeError`) and in the servers of a description, and is no longer exempt from the check of ports used twice. `Modbus_Server` declares `host`; `host` and `port` are null for an `rtu` server.
+- **Blocks are placed by unit entries.** A description gets the root key `units`; block entries keep only `name` and `layout`, and no longer take `unit_id`, `start` and `offset`. A unit entry stands for a device and places blocks of its own description with `start` and `offset`; every block of a description is placed once by one of its units, and a unit is declared by one `load` only.
+- **`Unit_Map#attach_unit` takes an options object**: `attach_unit(unit_id, block, { start, offset, readonly })`.
+- **`unmapped` is emitted only for a request that succeeds**, once per (kind, unit, address, operation), and carries `operation` (`read` or `write`).
+
+### Features
+
+- **Byte order of a unit.** A unit entry gives the byte order of its device with `endian` (`BE` by default, `LE`, `BEBS` or `LEBS`). The blocks stay big-endian, and the unit serves the IO buffer of each block in its byte order. `Unit_Map` gets `set_endian` and `get_endian`.
+- **Read-only points.** A placement takes `readonly`: `none` (the default), `all`, or a list of tag names. A write of FC 5 / 15 that reaches a read-only bit, or of FC 6 / 16 that reaches a register with a read-only bit, is refused as a whole with exception 0x02 and writes nothing.
+- **Refusing unmapped addresses.** A unit entry takes `unmapped_read` (`zero` or `refuse`) and `unmapped_write` (`ignore` or `refuse`); with `refuse`, a request that reaches an unmapped address of the unit is answered with exception 0x02. `Unit_Map` gets `set_unmapped_read`, `set_unmapped_write` and their getters.
+- **`request_refused` event.** The handler emits it for each point that causes a refusal, with the payload of `unmapped`, capped at 1024 keys and then `request_refused_limit` once; the emulator forwards it.
+
+### Fixes
+
+- **A placement `offset` must be below the size of its block.** Such a placement served no byte and gave a segment whose end was not above its start; `attach_unit` now throws a `RangeError`, and a description reports the error.
+
+## v0.3.0 - 2026-11-14 (中文)
+
+### 不兼容变更
+
+- **要求 es-modbus 0.3.0。** TCP 端口取 1 到 65535：`create_tcp_server` 拒绝端口 0（抛出 `RangeError`），描述的服务中也不接受端口 0，端口 0 不再免于端口重复的检查。`Modbus_Server` 声明了 `host`；`rtu` 服务的 `host` 和 `port` 为 null。
+- **数据块由单元条目放置。** 描述增加根键 `units`；数据块条目只保留 `name` 和 `layout`，不再接受 `unit_id`、`start` 和 `offset`。单元条目代表一台设备，用 `start` 和 `offset` 放置本描述中的数据块；描述中的每个数据块都由它的某个单元放置一次，一个单元只能由一次 `load` 声明。
+- **`Unit_Map#attach_unit` 改用选项对象**：`attach_unit(unit_id, block, { start, offset, readonly })`。
+- **`unmapped` 只对成功的请求发出**，每个（类别、单元、地址、操作）一次，并带有 `operation`（`read` 或 `write`）。
+
+### 功能
+
+- **单元的字节序。** 单元条目用 `endian` 给出设备的字节序（默认 `BE`，还有 `LE`、`BEBS`、`LEBS`）。数据块仍为大端，单元按自己的字节序提供每个数据块的 IO 缓冲区。`Unit_Map` 增加 `set_endian` 和 `get_endian`。
+- **只读点。** 放置可以带 `readonly`：`none`（默认）、`all` 或 tag 名列表。FC 5 / 15 写到只读位，或 FC 6 / 16 写到含只读位的寄存器时，整个请求被拒绝，应答异常 0x02，不写入任何内容。
+- **拒绝未映射地址。** 单元条目可以带 `unmapped_read`（`zero` 或 `refuse`）和 `unmapped_write`（`ignore` 或 `refuse`）；取 `refuse` 时，触及该单元未映射地址的请求应答异常 0x02。`Unit_Map` 增加 `set_unmapped_read`、`set_unmapped_write` 及相应的取值方法。
+- **`request_refused` 事件。** handler 为每个导致拒绝的点发出该事件，内容与 `unmapped` 相同，上限 1024 个键，之后发出一次 `request_refused_limit`；模拟器转发它。
+
+### 修复
+
+- **放置的 `offset` 须小于数据块大小。** 这样的放置不提供任何字节，得到的段终点不大于起点；现在 `attach_unit` 抛出 `RangeError`，描述中则报告该错误。
+
 ## v0.2.0
 
 ### Breaking changes
