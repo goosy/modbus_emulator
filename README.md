@@ -35,8 +35,10 @@ blocks:
 units:
   - unit_id: 1
     endian: BE # the byte order of the device: BE (default), LE, BEBS or LEBS
+    unmapped_read: zero # zero (default) | refuse: an unmapped address reads as 0, or the read is refused
+    unmapped_write: ignore # ignore (default) | refuse: a write of an unmapped address is ignored, or refused
     blocks:
-      pump_1: { start: 0 } # the byte of the unit where the block starts
+      pump_1: { start: 0, readonly: [id] } # start: the byte of the unit where the block starts; readonly: none (default) | all | tag names
 
 servers:
   - { protocol: tcp, host: 0.0.0.0, port: 1502 }
@@ -79,7 +81,8 @@ const pump = scope.get_layout("PUMP").create_ldata("pump_1");
 
 const unit_map = new Unit_Map();
 unit_map.set_endian(1, "BE"); // the default
-unit_map.attach_unit(1, pump, 0, 0);
+unit_map.attach_unit(1, pump, { start: 0, offset: 0, readonly: ["id"] });
+unit_map.set_unmapped_write(1, "refuse"); // refuse writes of unmapped addresses with 0x02
 
 const server = create_tcp_server(unit_map, { port: 1502 });
 await server.start();
@@ -98,11 +101,12 @@ The package outputs nothing itself and reports through events:
 ```js
 emulator.on("server_start", ({ server }) => console.log(`${server.name} started`));
 emulator.on("server_error", ({ server, error }) => console.error(`${server.name}: ${error.message}`));
-emulator.on("unmapped", ({ kind, unit_id, addr }) => console.warn(`unmapped ${kind} ${addr} in unit ${unit_id}`));
+emulator.on("unmapped", ({ kind, unit_id, addr, operation }) => console.warn(`${operation} of unmapped ${kind} ${addr} in unit ${unit_id}`));
+emulator.on("request_refused", ({ kind, unit_id, addr, operation }) => console.warn(`${operation} of ${kind} ${addr} in unit ${unit_id} refused`));
 ```
 
 - The emulator forwards each event `<name>` of its servers as `server_<name>` with `{ server }` and the argument of the event (`socket`, `error` or `frame`); `server.name` is the label of the service, such as `servers[0] (modbus://0.0.0.0:1502)`.
-- The handler emits `unmapped` once per unmapped address (at most 1024, then `unmapped_limit` once) and `listener_error` when a block listener throws; the emulator forwards them.
+- The handler emits `unmapped` for the unmapped points of a request that succeeds, `request_refused` for the points that cause a refusal, each once per (kind, unit, address, operation) and at most 1024 times (then `unmapped_limit` / `request_refused_limit` once), and `listener_error` when a block listener throws; the emulator forwards them.
 - The emulator always listens to `error` of its servers and never emits `error`, so it never throws from an event.
 - The emulator emits `warning` with `{ server, message }` for the diagnostics of a `load`, such as a service on a serial bus that answers the broadcast unit 0.
 
@@ -111,7 +115,8 @@ emulator.on("unmapped", ({ kind, unit_id, addr }) => console.warn(`unmapped ${ki
 - A block keeps its content in big-endian; a unit serves the IO buffer of each block in the byte order of the unit, the device byte order of layout-data.
 - Register `addr` is byte `addr * 2` of the unit. Holding and input registers share the same content.
 - Coil `addr` is bit `addr % 8` of byte `addr >> 3` of the unit.
-- Addresses with no block read as 0 / false and ignore writes (warned once per address).
+- Addresses with no block read as 0 / false and ignore writes (warned once per address and operation), unless the unit refuses them (`unmapped_read`, `unmapped_write`).
+- A read-only point (`readonly` of a placement) refuses the writes: FC 5 / 15 when it writes a read-only bit, FC 6 / 16 when it writes a register with a read-only bit. A refused request reads or writes nothing and is answered with exception 0x02.
 
 See [doc/spec.md](doc/spec.md) for the full specification and [doc/design.md](doc/design.md) for the implementation. Chinese editions: [doc/spec.zh-CN.md](doc/spec.zh-CN.md), [doc/design.zh-CN.md](doc/design.zh-CN.md).
 

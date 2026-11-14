@@ -53,8 +53,8 @@ async function start_server(t, options) {
 	const data = fake_block(32);
 	const command = fake_block(16);
 	const unit_map = new Unit_Map();
-	unit_map.attach_unit(UNIT, data, 0);
-	unit_map.attach_unit(UNIT, command, 400);
+	unit_map.attach_unit(UNIT, data, { start: 0 });
+	unit_map.attach_unit(UNIT, command, { start: 400 });
 	const server = ephemeral(create_tcp_server(unit_map, { host: HOST, ...options }));
 	await server.start();
 	t.after(() => server.stop());
@@ -147,8 +147,8 @@ describe("create_tcp_server", () => {
 
 	test("unit_ids limits the units a server answers", async (t) => {
 		const unit_map = new Unit_Map();
-		unit_map.attach_unit(UNIT, fake_block(8), 0);
-		unit_map.attach_unit(OTHER_UNIT, fake_block(8), 0);
+		unit_map.attach_unit(UNIT, fake_block(8), { start: 0 });
+		unit_map.attach_unit(OTHER_UNIT, fake_block(8), { start: 0 });
 		const connect = async (unit_ids) => {
 			const server = ephemeral(create_tcp_server(unit_map, { host: HOST, unit_ids }));
 			await server.start();
@@ -170,7 +170,7 @@ describe("create_tcp_server", () => {
 
 	test("the default unit_ids are the units of the map when the server is created", async (t) => {
 		const unit_map = new Unit_Map();
-		unit_map.attach_unit(UNIT, fake_block(8), 0);
+		unit_map.attach_unit(UNIT, fake_block(8), { start: 0 });
 		const server = ephemeral(create_tcp_server(unit_map, { host: HOST }));
 		await server.start();
 		t.after(() => server.stop());
@@ -178,7 +178,7 @@ describe("create_tcp_server", () => {
 		master.on("error", () => { });
 		t.after(() => master.disconnect());
 
-		unit_map.attach_unit(OTHER_UNIT, fake_block(8), 0);
+		unit_map.attach_unit(OTHER_UNIT, fake_block(8), { start: 0 });
 		await assert.rejects(master.read([3, 0, 1], OTHER_UNIT), { message: "response error: 11" });
 
 		// answering a later unit is the configuration of the server
@@ -203,7 +203,7 @@ describe("create_tcp_server", () => {
 		await master.read([3, 100, 1], UNIT);
 		await master.read([3, 100, 1], UNIT);
 
-		assert.deepEqual(unmapped, [{ kind: "holding_register", unit_id: UNIT, addr: 100 }]);
+		assert.deepEqual(unmapped, [{ kind: "holding_register", unit_id: UNIT, addr: 100, operation: "read" }]);
 	});
 
 	test("the unmapped addresses stop after 1024, with one unmapped_limit", () => {
@@ -217,7 +217,7 @@ describe("create_tcp_server", () => {
 		handler.get_holding_register(0, UNIT);
 
 		assert.equal(unmapped.length, 1024);
-		assert.deepEqual(unmapped[1023], { kind: "holding_register", unit_id: UNIT, addr: 1023 });
+		assert.deepEqual(unmapped[1023], { kind: "holding_register", unit_id: UNIT, addr: 1023, operation: "read" });
 		assert.deepEqual(limits, [{ limit: 1024 }]);
 	});
 
@@ -245,7 +245,7 @@ describe("create_tcp_server", () => {
 describe("create_rtu_server", () => {
 	test("creates an RTU slave on a serial port path without opening it", () => {
 		const unit_map = new Unit_Map();
-		unit_map.attach_unit(UNIT, fake_block(8), 0);
+		unit_map.attach_unit(UNIT, fake_block(8), { start: 0 });
 
 		const server = create_rtu_server("COM_TEST", unit_map, { baud_rate: 19200, parity: "even" });
 
@@ -258,8 +258,8 @@ describe("create_rtu_server", () => {
 
 	test("unit_ids limits the units a serial server answers", () => {
 		const unit_map = new Unit_Map();
-		unit_map.attach_unit(UNIT, fake_block(8), 0);
-		unit_map.attach_unit(OTHER_UNIT, fake_block(8), 0);
+		unit_map.attach_unit(UNIT, fake_block(8), { start: 0 });
+		unit_map.attach_unit(OTHER_UNIT, fake_block(8), { start: 0 });
 
 		const server = create_rtu_server("COM_TEST", unit_map, { unit_ids: [OTHER_UNIT] });
 

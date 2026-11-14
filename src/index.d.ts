@@ -26,12 +26,25 @@ export interface Modbus_Server extends EventEmitter {
 	set_unit_ids(unit_id: number | number[] | "all" | "*" | null | undefined): void;
 }
 
-/** An address that no block holds, emitted once per (kind, unit, address). */
-export interface Unmapped_Event {
+/**
+ * A point of a request: an unmapped point of a request that succeeds (`unmapped`), or a point that causes a
+ * refusal (`request_refused`). Each event is emitted once per (kind, unit, address, operation), for at most
+ * 1024 keys.
+ */
+export interface Point_Event {
+	/** holding_register: FC 3 / 6 / 16; input_register: FC 4; coil: FC 1 / 2 / 5 / 15. */
 	kind: "holding_register" | "input_register" | "coil";
 	unit_id: number;
+	/** The register or coil address of the point. */
 	addr: number;
+	operation: "read" | "write";
 }
+
+/** An unmapped point of a request that succeeds. */
+export type Unmapped_Event = Point_Event;
+
+/** A point that causes the refusal of a request, answered with exception 0x02. */
+export type Request_Refused_Event = Point_Event;
 
 /** An error a listener of a block throws when a request commits; the data stay written. */
 export interface Listener_Error_Event {
@@ -40,8 +53,9 @@ export interface Listener_Error_Event {
 }
 
 /**
- * The es-modbus server handler over a unit map (see `create_handler`). It emits `unmapped` once per
- * unmapped address, for at most 1024 addresses, then `unmapped_limit` once, and `listener_error`.
+ * The es-modbus server handler over a unit map (see `create_handler`). It emits `unmapped` and
+ * `request_refused` once per key, for at most 1024 keys each, then `unmapped_limit` / `request_refused_limit`
+ * once, and `listener_error`. A refused request throws an error with `exception_code` 0x02.
  */
 export interface Modbus_Handler extends EventEmitter {
 	get_holding_register(addr: number, unit_id: number): number;
@@ -61,6 +75,8 @@ export interface Modbus_Handler extends EventEmitter {
 	set_coils(addr: number, values: boolean[], unit_id: number): void;
 	on(event: "unmapped", listener: (event: Unmapped_Event) => void): this;
 	on(event: "unmapped_limit", listener: (event: { limit: number }) => void): this;
+	on(event: "request_refused", listener: (event: Request_Refused_Event) => void): this;
+	on(event: "request_refused_limit", listener: (event: { limit: number }) => void): this;
 	on(event: "listener_error", listener: (event: Listener_Error_Event) => void): this;
 	on(event: string | symbol, listener: (...args: any[]) => void): this;
 }
@@ -94,6 +110,17 @@ export interface Unit_Segment {
 	readonly start: number;
 	readonly offset: number;
 	readonly end: number;
+	/** The read-only declaration of the placement: none, all for the whole block, or the tag names. */
+	readonly readonly: "none" | "all" | readonly string[];
+}
+
+export interface Placement_Options {
+	/** The byte offset in the unit, even; 0 by default. */
+	start?: number;
+	/** The byte offset in the block, even; 0 by default. */
+	offset?: number;
+	/** `all` for the whole block, padding included, or a non-empty list of distinct tag names; `none` by default. */
+	readonly?: "none" | "all" | readonly string[];
 }
 
 export class Unit_Map {
@@ -103,8 +130,11 @@ export class Unit_Map {
 	segments(unit_id: number): readonly Unit_Segment[];
 	/** The block that holds a byte of a unit and the byte offset in its IO buffer; null for an unmapped byte. */
 	resolve(unit_id: number, byte: number): { block: Ldata, offset: number } | null;
-	/** @throws {RangeError} When start or offset is not an even non-negative integer. */
-	attach_unit(unit_id: number, block: Ldata, start?: number, offset?: number): void;
+	/**
+	 * @throws {RangeError} When start or offset is not an even non-negative integer, or readonly is not valid.
+	 * @throws {Error} When the bytes overlap the ones of another block of the unit.
+	 */
+	attach_unit(unit_id: number, block: Ldata, options?: Placement_Options): void;
 	/**
 	 * Sets the byte order of a unit, `BE` until it is set.
 	 * @throws {RangeError} For a unit id out of 0..255 or another byte order.
@@ -112,6 +142,18 @@ export class Unit_Map {
 	set_endian(unit_id: number, endian: Endian): void;
 	/** Gets the byte order of a unit. */
 	get_endian(unit_id: number): Endian;
+	/**
+	 * Sets how a unit answers the reads of its unmapped addresses, `zero` until it is set.
+	 * @throws {RangeError} For a unit id out of 0..255 or another value.
+	 */
+	set_unmapped_read(unit_id: number, value: "zero" | "refuse"): void;
+	get_unmapped_read(unit_id: number): "zero" | "refuse";
+	/**
+	 * Sets how a unit answers the writes of its unmapped addresses, `ignore` until it is set.
+	 * @throws {RangeError} For a unit id out of 0..255 or another value.
+	 */
+	set_unmapped_write(unit_id: number, value: "ignore" | "refuse"): void;
+	get_unmapped_write(unit_id: number): "ignore" | "refuse";
 }
 
 export function create_handler(unit_map: Unit_Map): Modbus_Handler;
@@ -188,6 +230,8 @@ export class Modbus_Emulator extends EventEmitter {
 	on(event: "warning", listener: (event: Warning_Event) => void): this;
 	on(event: "unmapped", listener: (event: Unmapped_Event) => void): this;
 	on(event: "unmapped_limit", listener: (event: { limit: number }) => void): this;
+	on(event: "request_refused", listener: (event: Request_Refused_Event) => void): this;
+	on(event: "request_refused_limit", listener: (event: { limit: number }) => void): this;
 	on(event: "listener_error", listener: (event: Listener_Error_Event) => void): this;
 	on(event: string | symbol, listener: (...args: any[]) => void): this;
 }

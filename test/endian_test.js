@@ -28,7 +28,7 @@ function make_unit(endian) {
 	const block = layout.create_ldata(`block_${++block_seq}`);
 	const unit_map = new Unit_Map();
 	unit_map.set_endian(UNIT, endian);
-	unit_map.attach_unit(UNIT, block, 0);
+	unit_map.attach_unit(UNIT, block, { start: 0 });
 	return { block, unit_map, handler: create_handler(unit_map) };
 }
 
@@ -137,7 +137,7 @@ describe("Unit_Map byte order", () => {
 	test("a unit is BE until its byte order is set, before or after its blocks are attached", () => {
 		const unit_map = new Unit_Map();
 		const block = layout.create_ldata(`block_${++block_seq}`);
-		unit_map.attach_unit(UNIT, block, 0);
+		unit_map.attach_unit(UNIT, block, { start: 0 });
 		const handler = create_handler(unit_map);
 		assert.equal(unit_map.get_endian(UNIT), "BE");
 		assert.equal(handler.get_holding_register(2, UNIT), 0x0007);

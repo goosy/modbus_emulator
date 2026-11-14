@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
 import { create_scope, desc_file, get_scope } from "layout-data";
-import { ENDIANS, Unit_Map, create_handler } from "./unit_map.js";
+import { ENDIANS, READONLY_VALUES, UNMAPPED_READS, UNMAPPED_WRITES, Unit_Map, create_handler, readonly_errors } from "./unit_map.js";
 import { create_tcp_server, create_rtu_server } from "./server.js";
 
 /** The scope the descriptions are loaded into when the caller names none (doc/spec.md 4). */
@@ -31,10 +31,10 @@ const SERVER_EVENTS = {
 const RESERVED_UNITS = [248, 249, 250, 251, 252, 253, 254, 255];
 
 // the events of the handler, forwarded unchanged
-const HANDLER_EVENTS = ["unmapped", "unmapped_limit", "listener_error"];
+const HANDLER_EVENTS = ["unmapped", "unmapped_limit", "request_refused", "request_refused_limit", "listener_error"];
 const BLOCK_KEYS = ["name", "layout"];
-const UNIT_KEYS = ["unit_id", "endian", "blocks"];
-const PLACEMENT_KEYS = ["start", "offset"];
+const UNIT_KEYS = ["unit_id", "endian", "unmapped_read", "unmapped_write", "blocks"];
+const PLACEMENT_KEYS = ["start", "offset", "readonly"];
 const TCP_SERVER_KEYS = ["protocol", "unit_ids", "host", "port"];
 const SERVER_KEYS = {
 	tcp: TCP_SERVER_KEYS,
@@ -178,10 +178,10 @@ export class Modbus_Emulator extends EventEmitter {
 			const source = { blocks: new Map() };
 			for (const entry of description.blocks) {
 				// the size of the layout compiled by desc_file or yaml is the one of the layout the scope will hold
-				const { size } = description.layouts[entry.layout];
+				const layout = description.layouts[entry.layout];
 				const where = `${prefix}blocks[${this.blocks.size + block_entries.length}]`;
 				block_entries.push({ entry, where });
-				source.blocks.set(entry.name, { size, where });
+				source.blocks.set(entry.name, { size: layout.size, layout, where });
 			}
 			// a Description keeps the root keys of this package as they are parsed
 			const { units, servers } = description;
@@ -233,9 +233,13 @@ export class Modbus_Emulator extends EventEmitter {
 			blocks.set(name, block);
 		}
 		// the byte order first, so the table of each segment is built once, at its attachment
-		for (const { unit_id, endian, placements } of checked_units) {
+		for (const { unit_id, endian, unmapped_read, unmapped_write, placements } of checked_units) {
 			if (endian !== undefined) this.unit_map.set_endian(unit_id, endian);
-			for (const { name, start, offset } of placements) this.unit_map.attach_unit(unit_id, blocks.get(name), start, offset);
+			if (unmapped_read !== undefined) this.unit_map.set_unmapped_read(unit_id, unmapped_read);
+			if (unmapped_write !== undefined) this.unit_map.set_unmapped_write(unit_id, unmapped_write);
+			for (const { name, start, offset, readonly } of placements) {
+				this.unit_map.attach_unit(unit_id, blocks.get(name), { start, offset, readonly });
+			}
 		}
 		// the servers without unit_ids answer the units added by this load too
 		const { unit_ids } = this.unit_map;
@@ -303,8 +307,9 @@ export class Modbus_Emulator extends EventEmitter {
 	 * Reads the unit entries of a load: each unit declared once in the emulator, and each block of a description
 	 * placed once by a unit of the same description.
 	 *
-	 * @return {Array<{unit_id: number, endian: string|undefined, placements: Array<{name: string, size: number,
-	 *     start: number, offset: number, where: string}>}>} The units, in the order of their entries.
+	 * @return {Array<{unit_id: number, endian: string|undefined, unmapped_read: string|undefined,
+	 *     unmapped_write: string|undefined, placements: Array<{name: string, size: number, start: number, offset: number,
+	 *     readonly: string|string[], where: string}>}>} The units, in the order of their entries.
 	 */
 	#read_units(entries, sources, errors) {
 		const result = [];
@@ -318,7 +323,7 @@ export class Modbus_Emulator extends EventEmitter {
 				continue;
 			}
 			check_keys(entry, UNIT_KEYS, where, errors);
-			const { unit_id, endian, blocks } = entry;
+			const { unit_id, endian, unmapped_read, unmapped_write, blocks } = entry;
 			if (!Number.isInteger(unit_id) || unit_id < 0 || unit_id > 255) {
 				errors.push(`${where}: unit_id must be an integer from 0 to 255`);
 			} else if (declared.has(unit_id)) {
@@ -328,6 +333,12 @@ export class Modbus_Emulator extends EventEmitter {
 			} else declared.set(unit_id, where);
 			if (endian !== undefined && !ENDIANS.includes(endian)) {
 				errors.push(`${where}: endian must be one of ${ENDIANS.join(", ")}`);
+			}
+			if (unmapped_read !== undefined && !UNMAPPED_READS.includes(unmapped_read)) {
+				errors.push(`${where}: unmapped_read must be one of ${UNMAPPED_READS.join(", ")}`);
+			}
+			if (unmapped_write !== undefined && !UNMAPPED_WRITES.includes(unmapped_write)) {
+				errors.push(`${where}: unmapped_write must be one of ${UNMAPPED_WRITES.join(", ")}`);
 			}
 			if (!is_mapping(blocks) || Object.keys(blocks).length === 0) {
 				errors.push(`${where}: blocks must be a non-empty mapping from block names to placements`);
@@ -341,7 +352,7 @@ export class Modbus_Emulator extends EventEmitter {
 					continue;
 				}
 				check_keys(placement, PLACEMENT_KEYS, at, errors);
-				const { start = 0, offset = 0 } = placement;
+				const { start = 0, offset = 0, readonly = READONLY_VALUES[0] } = placement;
 				if (!is_even_offset(start)) errors.push(`${at}: start must be an even non-negative byte offset`);
 				if (!is_even_offset(offset)) errors.push(`${at}: offset must be an even non-negative byte offset`);
 				const block = source.blocks.get(name);
@@ -354,9 +365,10 @@ export class Modbus_Emulator extends EventEmitter {
 					continue;
 				}
 				placed.set(block, at);
-				placements.push({ name, size: block.size, start, offset, where: at });
+				for (const error of readonly_errors(readonly, block.layout)) errors.push(`${at}: ${error}`);
+				placements.push({ name, size: block.size, start, offset, readonly, where: at });
 			}
-			result.push({ unit_id, endian, placements });
+			result.push({ unit_id, endian, unmapped_read, unmapped_write, placements });
 		}
 		for (const source of sources) {
 			for (const [name, block] of source.blocks) {
@@ -377,7 +389,7 @@ export class Modbus_Emulator extends EventEmitter {
 		const unit_map = new Unit_Map();
 		for (const unit_id of this.unit_map.unit_ids) {
 			for (const { block, start, offset } of this.unit_map.segments(unit_id)) {
-				unit_map.attach_unit(unit_id, block, start, offset);
+				unit_map.attach_unit(unit_id, block, { start, offset });
 			}
 		}
 		for (const { entry: { name }, where } of block_entries) {
@@ -386,7 +398,7 @@ export class Modbus_Emulator extends EventEmitter {
 		for (const { unit_id, placements } of units) {
 			for (const { name, size, start, offset, where } of placements) {
 				try {
-					unit_map.attach_unit(unit_id, { name, size }, start, offset);
+					unit_map.attach_unit(unit_id, { name, size }, { start, offset });
 				} catch (error) {
 					errors.push(`${where}: ${error.message}`);
 				}

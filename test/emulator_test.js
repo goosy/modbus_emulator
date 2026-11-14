@@ -662,7 +662,7 @@ servers:
 		for (const master of masters) await master.read([3, 1000, 1], 1);
 
 		assert.ok(emulator.handler);
-		assert.deepEqual(unmapped, [{ kind: "holding_register", unit_id: 1, addr: 1000 }]);
+		assert.deepEqual(unmapped, [{ kind: "holding_register", unit_id: 1, addr: 1000, operation: "read" }]);
 	});
 
 	test("the server events are forwarded with the server, named by its label", async () => {

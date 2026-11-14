@@ -26,12 +26,19 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - 数据块的内容按大端存放（layout-data 只保存一份规范数据）。单元对外提供的是数据块的 IO 缓冲区，即按单元字节序（缺省 `BE`）重排后的字节，与 layout-data 的 `load_tag` / `store_tag`、`Layout#io_index_table(endian)` 一致；主站写入的数据先转换回大端，再写入数据块；
 - 寄存器 `addr` 对应单元内的字节 `addr * 2`；
 - 线圈 `addr` 对应单元内字节 `addr >> 3` 的第 `addr % 8` 位；
-- 保持寄存器与输入寄存器内容相同；寄存器和线圈可读写；
+- 保持寄存器与输入寄存器内容相同；寄存器和线圈可读，除只读的点外也可写；
+- 只读的点：数据块的放置可以声明整块或其中某些 tag 只读（§5）。单元中各数据块的声明构成该单元的只读位，按各数据块的字节计：整块只读（`all`）的数据块的全部位（包括填充位）；只读 Bool 自己那一位；其他类型的只读 tag（组合字、Byte、Int、Real 等）所占字节的全部位，所以组合字只读时它的耦合位也只读。其余的位（包括填充位）可写；
+  - FC 5 / FC 15：写到只读位的请求整个拒绝；
+  - FC 6 / FC 16：写到的寄存器的 16 位中有只读位时，请求整个拒绝；
+  - 因此只读 tag 和可写 tag 共用的寄存器不能用 FC 6 / FC 16 写，可写 tag 的位仍可用 FC 5 / FC 15 写，包括一次 FC 15 写连续多位；跨寄存器的只读 tag，FC 16 只写到其中一个寄存器也拒绝；
+- 被拒的请求不读写任何点，应答异常码 0x02（Illegal Data Address）。拒绝是协议的正常应答，不是 handler 的错误：es-modbus 不为它发出 `handler_error`。在串行总线上，被拒的广播（unit 0）不应答（广播从不应答），但它的写入同样被拒绝；
 - 写入经 Ldata 的写入方法完成，因此数据块的 `change` 和 `write` 事件照常触发；
 - 一次 FC 16 / FC 15 请求是原子的：对写到的每个块写入一次，发出一次 `write` 和一次 `write` 类的 `access`；写入中途失败时，涉及的块全部恢复，主站收到异常码 0x04。FC 6 / FC 5 写一个点。这由 handler 完成，所以用 `create_handler` 自行装配的服务行为相同；
 - 一次读请求对读到的每个块发出一次 `read` 类的 `access`，只报告被读的 tag；线圈只报告被读的位所对应的 Bool；
 - 提交一次请求时，块的监听器（`change`、`write`、`access`）抛出的异常既不撤销写入，也不影响其他块：主站照常收到应答，handler 发出 `listener_error`，载荷 `{ block, error }`；
-- 单元内没有数据块的地址读为 0 / false，写入被忽略，不应答异常，因此跨越空档的整块读取仍能成功；handler 对每个（类型、单元、地址）只发出一次 `unmapped`，最多 1024 个地址，之后发出一次 `unmapped_limit`，不再发出 `unmapped`（见“事件”）；
+- 单元内没有数据块的地址是未映射的。缺省时它读为 0 / false，写入被忽略，不应答异常，因此跨越空档的读写仍能成功，handler 为未映射的点发出 `unmapped`（见“事件”）；
+  - 单元也可以改为拒绝（`unmapped_read`、`unmapped_write`，§5）：`unmapped_read: refuse` 时，读到该单元未映射地址的读请求（FC 1 / 2 / 3 / 4）被拒绝；`unmapped_write: refuse` 时，写请求（FC 5 / 6 / 15 / 16）同样被拒绝。两者相互独立，测试可以只拒绝写入，同时让主站的轮询照常成功；
+  - 只有成功的请求才发出 `unmapped`：被拒的请求改为发出 `request_refused`（见“事件”）；
 - 服务不应答的单元号，在 `tcp` 下由 es-modbus 应答异常码 0x0B，在串行总线（`rtu`、`rtu_over_tcp`）上不作应答；非法功能码、数量或地址越界应答 0x01 / 0x03 / 0x02；
 - 在串行总线（`rtu`、`rtu_over_tcp`）上，unit 0 是广播地址：es-modbus 执行对它的写入，但从不应答，所以经这类服务读不到 unit 0 的数据块；248..255 在串行总线上是保留地址。这类协议的服务应答 unit 0 或 248..255 中的单元时，模拟器发出 `warning` 事件（见“事件”），不作为错误。
 
@@ -49,11 +56,12 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, name })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
 - `name`：可选，`Modbus_Server` 的 `name`，在事件和错误中标明服务；es-modbus 的缺省值为 `Modbus_Server`；
 - `Unit_Map` / `create_handler(unit_map)`：单元表和 es-modbus 的服务端 handler，供不用描述的调用方（如控制器）自行组装。
-  - `attach_unit(unit_id, block, start, offset)` 把数据块从其字节 `offset` 起放到单元的字节 `start` 处；两者缺省为 0，须为偶数非负整数，否则抛出 `RangeError`；同一单元内各数据块的字节区间不得重叠，重叠时抛出 `Error`，指明两个数据块；
+  - `attach_unit(unit_id, block, { start, offset, readonly })` 把数据块从其字节 `offset` 起放到单元的字节 `start` 处；选项对象及其中每一项都可省略。`start` 和 `offset` 缺省为 0，须为偶数非负整数，否则抛出 `RangeError`；`readonly`（§3）为 `none`（缺省）、`all`（整块只读），或该数据块布局中互不相同的 tag 名组成的非空列表，其他值抛出 `RangeError`；同一单元内各数据块的字节区间不得重叠，重叠时抛出 `Error`，指明两个数据块；
   - `set_endian(unit_id, endian)` 设置单元的字节序（§3），未设置时为 `BE`；单元号不在 0..255 或字节序不是 §2 所列四种之一时抛出 `RangeError`；
   - `get_endian(unit_id)`：获取单元的字节序；
+  - `set_unmapped_read(unit_id, value)` / `set_unmapped_write(unit_id, value)` 设置单元如何应答对其未映射地址的读和写（§3）：读取 `zero`（缺省）或 `refuse`，写入 `ignore`（缺省）或 `refuse`；单元号不在 0..255 或取值不在其中时抛出 `RangeError`。`get_unmapped_read(unit_id)` / `get_unmapped_write(unit_id)` 获取它们。与 `set_endian` 一样，可以在挂上该单元的数据块之前或之后调用；
   - `unit_ids`：有数据块的单元，按首次挂载的顺序；
-  - `segments(unit_id)`：单元的字节区间（`{ block, start, offset, end }`），按 `start` 排序，没有数据块的单元为空；
+  - `segments(unit_id)`：单元的字节区间（`{ block, start, offset, end, readonly }`），按 `start` 排序，没有数据块的单元为空；`readonly` 是该放置的声明：`none`、`all` 或 tag 名列表；
   - `resolve(unit_id, byte)`：单元中某个字节所在的数据块及块内字节偏移（`{ block, offset }`），未映射时为 null；
   - `segments` 的 `start`、`offset`、`end` 以及 `resolve` 返回的偏移，都以数据块 IO 缓冲区的字节计（§3）。
 - `Ldata`、`Ltag`、`create_scope`、`get_scope`、`yaml`、`desc_file`，以及与之相配的 layout-data 类型（`Layout`、`Layout_Scope`、`Layout_Tag`、`Layout_Desc`、`Block_Desc`、`Description`、`Registration`、`Endian`、`Tag_Type`）：调用方用到的 [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md) 接口，原样转发。`load`、查找布局、`create_ldata`、`get_ldata`、`delete_ldata`、`io_index_table` 是登记域或布局的方法。登记域的 `load` 只接受编译好的描述：`yaml` 和 `desc_file` 分别编译 YAML 文本和描述文件。数据块就是 `Ldata` 对象，所以调用方只从本包取得这些接口，不再自己依赖 layout-data，进程里也只有一份（登记域需要这一点：两份 layout-data 互不共享登记域，一份的 `get_scope` 找不到另一份的登记域）。转发的接口随本包所依赖的 layout-data 版本而变。
@@ -68,12 +76,18 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 
   | 事件 | 载荷 | 时机 |
   | --- | --- | --- |
-  | `unmapped` | `{ kind, unit_id, addr }`，`kind` 为 `"holding_register"`、`"input_register"` 或 `"coil"` | 读写未映射的地址；每个（类型、单元、地址）只发一次，最多 1024 个地址 |
-  | `unmapped_limit` | `{ limit }` | 已发出第 1024 个地址，之后的未映射地址不再发出 |
+  | `unmapped` | `{ kind, unit_id, addr, operation }` | 成功的请求读写到未映射的点 |
+  | `unmapped_limit` | `{ limit }` | 已发出 `unmapped` 的第 1024 个键，之后不再发出 `unmapped` |
+  | `request_refused` | `{ kind, unit_id, addr, operation }` | 请求被拒绝（§3），对造成拒绝的每个点发出 |
+  | `request_refused_limit` | `{ limit }` | 已发出 `request_refused` 的第 1024 个键，之后不再发出 `request_refused` |
   | `listener_error` | `{ block, error }` | 提交一次请求时块的监听器（`change`、`write`、`access`）抛出异常；数据保持写入，主站照常收到应答 |
 
+  - `unmapped` 和 `request_refused` 的载荷指一个点：`kind` 是它的数据类型，`"holding_register"`（FC 3 / 6 / 16）、`"input_register"`（FC 4）或 `"coil"`（FC 1 / 2 / 5 / 15：handler 没有离散输入，es-modbus 用线圈应答 FC 2）；`addr` 是它的寄存器地址或线圈地址；`operation` 为 `"read"` 或 `"write"`；
+  - 造成拒绝的点：写请求写到的只读点，以及请求在拒绝未映射地址的单元中读写到的未映射点；请求中其他的点不发出。一个点要么已映射且只读，要么未映射，调用方用 `unit_map.resolve` 即可区分。被拒请求的范围可从 `server_receive` 的请求帧得知；
+  - 泛洪抑制：两个事件都按键（类型、单元、地址、操作）各只发一次，最多 1024 个键，因此轮询或扫描的主站不会淹没监听器。两个事件各自计 1024 个键：用满后发出一次各自的 `_limit` 事件，不再发出该事件，请求则照常应答和拒绝。一个请求最多可达 2000 个线圈（FC 1 / 2 / 15），可能一次占用大量键。两个事件的键不会重合：只读的点都已映射，未映射的点发出哪一个由其单元的选项决定；
+
 - 服务是 es-modbus 的 `Modbus_Server`，事件为 es-modbus 原有的：`start`、`stop`、`socket_connect`（socket）、`socket_disconnect`（socket）、`socket_error`（error）、`error`（error）、`handler_error`（error）、`receive`（请求帧）、`send`（应答帧）。工厂不添加监听器。`EventEmitter` 在 `error` 事件无监听器时会抛出异常，所以直接使用工厂的调用方须自行监听每个服务的 `error`。
-- handler 抛出异常或返回无效值（批量读的长度不符、寄存器值越界）时，由 es-modbus 作为 `handler_error` 报告，主站收到异常码 0x04。
+- handler 抛出异常或返回无效值（批量读的长度不符、寄存器值越界）时，由 es-modbus 作为 `handler_error` 报告，主站收到异常码 0x04。拒绝（§3）不这样报告。
 - `Modbus_Emulator` 是 `EventEmitter`：把每个服务的事件 `<name>` 转发为 `server_<name>`（`server_start`、`server_stop`、`server_socket_connect`、`server_socket_disconnect`、`server_socket_error`、`server_error`、`server_handler_error`、`server_receive`、`server_send`），载荷为 `{ server }`，es-modbus 带有参数时再加 `socket`、`error` 或 `frame`；由 `server.name` 得知来自哪个服务。handler 的事件按原名、原载荷转发。模拟器始终监听其服务的 `error`，自身从不发出 `error`。
 - `Modbus_Emulator` 对 `load` 的每条诊断发出 `warning`，载荷为 `{ server, message }`：串行总线上的服务应答 unit 0 或 248..255 中的单元（§3），每个服务每类一次；`message` 以服务的 `name` 开头。未写 `unit_ids` 的服务在之后的装入增加单元时再次检查这些单元。
 
@@ -101,12 +115,14 @@ blocks:
 units:
   - unit_id: 1                     # 0..255
     endian: LE                     # BE (default), LE, BEBS or LEBS
+    unmapped_read: zero            # zero (default) | refuse
+    unmapped_write: ignore         # ignore (default) | refuse
     blocks:
       pump_1: {}
-      pump_2: { start: 400 }       # start: byte offset in the unit, even
+      pump_2: { start: 400, readonly: [pressure] }  # start: byte offset in the unit, even; readonly: none (default) | all | tag names
   - unit_id: 3
     blocks:
-      pump_3: { offset: 16 }       # offset: start byte inside the block, even
+      pump_3: { offset: 2 }        # offset: start byte inside the block, even
 
 # 4. the services
 servers:
@@ -116,12 +132,14 @@ servers:
 ```
 
 - `blocks[].name` 必须写明，是其布局的其他数据块、模拟器的其他数据块都未用过的字符串（layout-data 与本包）；`blocks[].layout` 是同一描述中的布局名；
-- `units[].unit_id` 必须写明，取值 0..255 的整数，不得与本次装入的其他单元条目或先前装入的单元重复：单元只在一次装入中声明，装入后不再改变。`units[].endian`（可选）是单元的字节序，取 `BE`、`LE`、`BEBS` 或 `LEBS`，缺省 `BE`（§3）；
+- `units[].unit_id` 必须写明，取值 0..255 的整数，不得与本次装入的其他单元条目或先前装入的单元重复：单元只在一次装入中声明，装入后不再改变。`units[].endian`（可选）是单元的字节序，取 `BE`、`LE`、`BEBS` 或 `LEBS`，缺省 `BE`（§3）。`units[].unmapped_read`（可选）取 `zero`（缺省）或 `refuse`，`units[].unmapped_write`（可选）取 `ignore`（缺省）或 `refuse`：单元如何应答对其未映射地址的读和写（§3）；
 - `units[].blocks` 必须写明，是非空对象，键是数据块名，值是该数据块的放置。放置有可选的 `start`（数据块在单元内的起始字节）和 `offset`（数据块从自身的第几个字节起对外提供），都是偶数非负整数，缺省为 0；`{}` 表示把整个数据块放在单元的字节 0 处。同一单元内各数据块的字节区间不得重叠；
+- 放置可以有 `readonly`（§3）：`none`（缺省）；`all`，整块只读，包括填充位；或该数据块布局中的 tag 名组成的非空列表，列出的 tag 只读。布局中没有的名字、重复的名字是错误；同时列出组合字和它的耦合位是允许的。只读 tag 落在放置没有提供的部分（`offset` 之前）时没有效果；
+  - 只读的点按 tag 声明，不按字节或寄存器区间：写描述的人以 tag 思考，区间要对照布局换算，布局一改就要跟着改；
 - 描述中的每个数据块都必须由本描述的单元条目放置，且只能放置一次：没有被放置、被放置两次，或由其他描述的单元条目放置，都是错误；
 - `servers[].protocol` 取 `tcp`、`rtu_over_tcp`、`rtu`；`tcp` 和 `rtu_over_tcp` 的 `host` 缺省 `0.0.0.0`、`port` 缺省 502，`port` 为 1..65535 的整数（es-modbus 不接受端口 0）；`rtu` 的 `port` 为串口路径，可带 `baud_rate`（正整数，缺省 9600）、`parity`（`none`、`odd` 或 `even`，缺省 `none`）、`data_bits`（5、6、7 或 8，缺省 8）、`stop_bits`（1、1.5 或 2，缺省 1）；
 - 两个 `tcp` / `rtu_over_tcp` 服务不得使用相同的 `host` 和 `port`，不同 `host` 可用同一端口；两个 `rtu` 服务不得使用同一串口路径；
-- 数据块条目只有 `name` 和 `layout` 两个键；单元条目只有 `unit_id`、`endian`、`blocks`，放置只有 `start` 和 `offset`；服务条目只有 `protocol`、`unit_ids`，以及 `tcp` / `rtu_over_tcp` 的 `host`、`port` 或 `rtu` 的 `port`、`baud_rate`、`parity`、`data_bits`、`stop_bits`；其他键是错误。根键不检查：`imports`、`layouts`、`item_tables`、`blocks`、`units`、`servers` 以外的键不被使用，可以存放任何内容（如 YAML 锚点）；
+- 数据块条目只有 `name` 和 `layout` 两个键；单元条目只有 `unit_id`、`endian`、`unmapped_read`、`unmapped_write`、`blocks`，放置只有 `start`、`offset` 和 `readonly`；服务条目只有 `protocol`、`unit_ids`，以及 `tcp` / `rtu_over_tcp` 的 `host`、`port` 或 `rtu` 的 `port`、`baud_rate`、`parity`、`data_bits`、`stop_bits`；其他键是错误。根键不检查：`imports`、`layouts`、`item_tables`、`blocks`、`units`、`servers` 以外的键不被使用，可以存放任何内容（如 YAML 锚点）；
 - `servers[].unit_ids`（可选）：该服务应答的单元号，非空整数列表，取值 0..255，且每个单元号在装入后必须是模拟器的单元；缺省应答全部单元，包括之后装入的单元；
 - 条目表可以不写在描述里：描述用 `imports` 引入它们，并在 `layouts` 中列出自己的布局；布局文件也与其他来源一样是 `sources` 列表的一项：全部来源一并装入，列出同名且结构相同布局的描述共用该布局；
 - 所有服务共用同一个单元表和同一组数据块，`unit_ids` 只决定各服务应答哪些单元。

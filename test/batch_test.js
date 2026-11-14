@@ -34,8 +34,8 @@ function make_unit() {
 	const a = layout.create_ldata("a");
 	const b = layout.create_ldata("b");
 	const unit_map = new Unit_Map();
-	unit_map.attach_unit(UNIT, a, 0);
-	unit_map.attach_unit(UNIT, b, 8);
+	unit_map.attach_unit(UNIT, a, { start: 0 });
+	unit_map.attach_unit(UNIT, b, { start: 8 });
 	const log = [];
 	for (const block of [a, b]) {
 		block.on("write", () => log.push(`${block.name} write`));
@@ -142,8 +142,8 @@ describe("batch writes", () => {
 
 		assert.equal(b.read_bytes(4, 4).readUInt32BE(0), 0x0001_0002);
 		assert.deepEqual(unmapped, [
-			{ kind: "holding_register", unit_id: UNIT, addr: 8 },
-			{ kind: "holding_register", unit_id: UNIT, addr: 9 },
+			{ kind: "holding_register", unit_id: UNIT, addr: 8, operation: "write" },
+			{ kind: "holding_register", unit_id: UNIT, addr: 9, operation: "write" },
 		]);
 	});
 });
@@ -200,8 +200,8 @@ describe("batch reads", () => {
 		assert.deepEqual(handler.get_holding_registers(6, 3, UNIT), [7, 0, 0]); // b.n, the Bools of b, then register 8
 		assert.deepEqual(handler.get_coils(127, 2, UNIT), [false, false]); // coil 127 of b (b.c2), then 128
 		assert.deepEqual(unmapped, [
-			{ kind: "holding_register", unit_id: UNIT, addr: 8 },
-			{ kind: "coil", unit_id: UNIT, addr: 128 },
+			{ kind: "holding_register", unit_id: UNIT, addr: 8, operation: "read" },
+			{ kind: "coil", unit_id: UNIT, addr: 128, operation: "read" },
 		]);
 	});
 });
