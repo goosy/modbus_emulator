@@ -4,12 +4,8 @@ opened: 2026-10-28T17:28:21.929Z
 closed: 2026-10-29T08:44:29.000Z
 title: Construction only builds the instance; descriptions are loaded by emulator.load any number of times, with all checks before scope.load
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [28ae016]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

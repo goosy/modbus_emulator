@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:13.000Z
 closed: 2026-10-24T18:27:41.000Z
 title: RTU unit 0 and the reserved addresses are not explained
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [03d30e7]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

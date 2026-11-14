@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:07.000Z
 closed: 2026-10-23T14:07:46.000Z
 title: The block offset is not required to be even
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [a14a08c]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

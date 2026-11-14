@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:22.000Z
 closed: 2026-10-24T18:26:07.000Z
 title: servers has no mapping to the description entries
 status: rejected    # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

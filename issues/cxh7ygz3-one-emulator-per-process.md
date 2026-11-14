@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:20.000Z
 closed: 2026-10-24T16:18:10.000Z
 title: The once-per-process layout registration constraint is not in the spec
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [6a67012]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

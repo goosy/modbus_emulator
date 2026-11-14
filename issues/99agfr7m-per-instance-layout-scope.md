@@ -4,12 +4,8 @@ opened: 2026-10-27T18:41:16.423Z
 closed: 2026-10-27T22:01:36.000Z
 title: The layout scope is bound to the whole package instead of to each emulator instance
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [19e9f26]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

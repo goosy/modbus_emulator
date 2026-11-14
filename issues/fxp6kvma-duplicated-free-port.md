@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:26.000Z
 closed: 2026-10-24T09:26:11.000Z
 title: The test helper free_port is duplicated and racy
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [844109d]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

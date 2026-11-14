@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:21.000Z
 closed: 2026-10-24T18:28:29.000Z
 title: The argument order of create_tcp_server
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [be513a3]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

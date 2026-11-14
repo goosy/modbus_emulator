@@ -4,12 +4,8 @@ opened: 2026-10-28T17:28:21.928Z
 closed: 2026-10-29T04:58:18.000Z
 title: get_coil reads the bit with read_bytes, so access reports every Bool of the byte
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [ae3d8d7]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

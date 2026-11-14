@@ -4,12 +4,8 @@ opened: 2026-10-24T15:01:24.251Z
 closed: 2026-10-24T16:20:22.000Z
 title: Some description errors are thrown directly instead of collected in errors
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [a03e9cc]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

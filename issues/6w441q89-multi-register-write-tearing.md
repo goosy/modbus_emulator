@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:04.000Z
 closed: 2026-10-24T09:55:55.000Z
 title: Multi-register writes produce intermediate values (tearing)
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [f465cb4, d6dd46d]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

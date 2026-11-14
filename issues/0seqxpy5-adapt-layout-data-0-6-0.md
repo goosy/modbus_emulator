@@ -4,12 +4,8 @@ opened: 2026-10-29T12:28:54.912Z
 closed: 2026-10-29T12:58:36.000Z
 title: Upgrade the dependency to layout-data 0.6.0 and adapt; the constructor accepts compiled descriptions
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [211db22]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

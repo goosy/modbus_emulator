@@ -4,12 +4,8 @@ opened: 2026-10-24T05:16:05.092Z
 closed: 2026-10-24T07:17:14.000Z
 title: es-modbus renamed vector to handler; all register writes fail and handler errors are no longer logged
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [e4e8738]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

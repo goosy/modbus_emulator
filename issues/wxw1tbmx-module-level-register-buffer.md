@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:16.000Z
 closed: 2026-10-24T01:40:33.000Z
 title: Module-level shared buffer
 status: rejected    # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

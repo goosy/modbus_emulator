@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:18.000Z
 closed: 2026-10-24T16:18:10.000Z
 title: The implicit object description entry
 status: rejected    # open | accepted | fixed | rejected | wontfix
-fixed_in: []        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

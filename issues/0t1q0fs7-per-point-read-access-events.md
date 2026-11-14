@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:14.000Z
 closed: 2026-10-24T09:58:01.000Z
 title: Per-point reads make access events repeated and imprecise
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [f465cb4, 6e53415]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

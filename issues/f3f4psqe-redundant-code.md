@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:30.000Z
 closed: 2026-10-23T13:32:37.000Z
 title: Redundant code
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [e7d125a]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

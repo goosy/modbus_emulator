@@ -4,12 +4,8 @@ opened: 2026-10-23T13:15:47.067Z
 closed: 2026-10-24T18:26:07.000Z
 title: Diagnostics go to an injected logger, and callers cannot handle them as events
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [d005ad7, 10d51f8]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

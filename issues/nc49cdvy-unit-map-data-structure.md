@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:19.000Z
 closed: 2026-10-24T12:53:23.000Z
 title: The data structure of Unit_Map
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [94b5f08]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem

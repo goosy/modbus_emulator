@@ -4,12 +4,8 @@ opened: 2026-10-17T23:58:05.000Z
 closed: 2026-10-23T14:43:50.000Z
 title: After a failed start some servers keep running, and only the first error is reported
 status: fixed       # open | accepted | fixed | rejected | wontfix
-fixed_in: [69f738d]        # commit IDs, backfilled at version commit time
 labels: []
 remote:
-problem_title:
-proposal_title:
-decision_title:
 ---
 
 ## Problem
