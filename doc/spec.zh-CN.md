@@ -27,7 +27,7 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - 寄存器 `addr` 对应单元内的字节 `addr * 2`；
 - 线圈 `addr` 对应单元内字节 `addr >> 3` 的第 `addr % 8` 位；
 - 保持寄存器与输入寄存器内容相同；寄存器和线圈可读，除只读的点外也可写；
-- 只读的点：数据块的放置可以声明整块或其中某些 tag 只读（§5）。单元中各数据块的声明构成该单元的只读位，按各数据块的字节计：整块只读（`all`）的数据块的全部位（包括填充位）；只读 Bool 自己那一位；其他类型的只读 tag（组合字、Byte、Int、Real 等）所占字节的全部位，所以组合字只读时它的耦合位也只读。其余的位（包括填充位）可写；
+- 只读的点：数据块的放置可以声明整块或其中某些 tag 只读（[spec-descriptions.zh-CN.md](spec-descriptions.zh-CN.md)）。单元中各数据块的声明构成该单元的只读位，按各数据块的字节计：整块只读（`all`）的数据块的全部位（包括填充位）；只读 Bool 自己那一位；其他类型的只读 tag（组合字、Byte、Int、Real 等）所占字节的全部位，所以组合字只读时它的耦合位也只读。其余的位（包括填充位）可写；
   - FC 5 / FC 15：写到只读位的请求整个拒绝；
   - FC 6 / FC 16：写到的寄存器的 16 位中有只读位时，请求整个拒绝；
   - 因此只读 tag 和可写 tag 共用的寄存器不能用 FC 6 / FC 16 写，可写 tag 的位仍可用 FC 5 / FC 15 写，包括一次 FC 15 写连续多位；跨寄存器的只读 tag，FC 16 只写到其中一个寄存器也拒绝；
@@ -37,7 +37,7 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - 一次读请求对读到的每个块发出一次 `read` 类的 `access`，只报告被读的 tag；线圈只报告被读的位所对应的 Bool；
 - 提交一次请求时，块的监听器（`change`、`write`、`access`）抛出的异常既不撤销写入，也不影响其他块：主站照常收到应答，handler 发出 `listener_error`，载荷 `{ block, error }`；
 - 单元内没有数据块的地址是未映射的。缺省时它读为 0 / false，写入被忽略，不应答异常，因此跨越空档的读写仍能成功，handler 为未映射的点发出 `unmapped`（见“事件”）；
-  - 单元也可以改为拒绝（`unmapped_read`、`unmapped_write`，§5）：`unmapped_read: refuse` 时，读到该单元未映射地址的读请求（FC 1 / 2 / 3 / 4）被拒绝；`unmapped_write: refuse` 时，写请求（FC 5 / 6 / 15 / 16）同样被拒绝。两者相互独立，测试可以只拒绝写入，同时让主站的轮询照常成功；
+  - 单元也可以改为拒绝（`unmapped_read`、`unmapped_write`，[spec-descriptions.zh-CN.md](spec-descriptions.zh-CN.md)）：`unmapped_read: refuse` 时，读到该单元未映射地址的读请求（FC 1 / 2 / 3 / 4）被拒绝；`unmapped_write: refuse` 时，写请求（FC 5 / 6 / 15 / 16）同样被拒绝。两者相互独立，测试可以只拒绝写入，同时让主站的轮询照常成功；
   - 只有成功的请求才发出 `unmapped`：被拒的请求改为发出 `request_refused`（见“事件”）；
 - 服务不应答的单元号，在 `tcp` 和 `udp` 下由 es-modbus 应答异常码 0x0B，在串行总线（`rtu`、`rtu_over_tcp`、`rtu_over_udp`）上不作应答；非法功能码、数量或地址越界应答 0x01 / 0x03 / 0x02；
 - 在串行总线（`rtu`、`rtu_over_tcp`、`rtu_over_udp`）上，unit 0 是广播地址：es-modbus 执行对它的写入，但从不应答，所以经这类服务读不到 unit 0 的数据块；248..255 在串行总线上是保留地址。这类协议的服务应答 unit 0 或 248..255 中的单元时，模拟器发出 `warning` 事件（见“事件”），不作为错误。
@@ -45,7 +45,7 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 ## 4. 接口
 
 - `Modbus_Emulator(scope)`：主构造方法，建立一个没有数据块和服务的模拟器，使调用方能在装入任何内容之前挂上监听器；`scope`（可选）是描述装入的 layout-data 登记域的名称，缺省为 `modbus_emulator`；名称不是标识符时抛出 `create_scope` 的错误；
-  - `load(sources)`：装入描述，可以调用任意多次。`sources` 是一个来源或来源列表，一并读取；每个来源是描述文件（路径或 `file:` URL，§5），由本包用 `desc_file` 编译，或是 layout-data 的 `Description`，由调用方用本包转发的 `desc_file` 或 `yaml` 编译；列表中两者可以混用，其他值不是来源。描述文件服务于最终使用者，他们写的是配置文件；`Description` 服务于动态生成描述的程序。描述给出布局、要建立的数据块、放置数据块的单元以及服务的参数，`load` 据此建立数据块、单元和服务，不启动服务。返回 `{ blocks, servers }`：本次新增的数据块（数据块名到 Ldata 的映射）和服务。每次装入都对照模拟器的全部状态检查：与模拟器已有数据块同名、与先前装入的单元号相同、与先前的服务端口相同都是错误，`unit_ids` 中的单元是装入后模拟器的单元。未写 `unit_ids` 的服务应答模拟器的全部单元，包括之后装入的单元；
+  - `load(sources)`：装入描述，可以调用任意多次。`sources` 是一个来源或来源列表，一并读取；每个来源是描述文件（路径或 `file:` URL，[spec-descriptions.zh-CN.md](spec-descriptions.zh-CN.md)），由本包用 `desc_file` 编译，或是 layout-data 的 `Description`，由调用方用本包转发的 `desc_file` 或 `yaml` 编译；列表中两者可以混用，其他值不是来源。描述文件服务于最终使用者，他们写的是配置文件；`Description` 服务于动态生成描述的程序。描述给出布局、要建立的数据块、放置数据块的单元以及服务的参数，`load` 据此建立数据块、单元和服务，不启动服务。返回 `{ blocks, servers }`：本次新增的数据块（数据块名到 Ldata 的映射）和服务。每次装入都对照模拟器的全部状态检查：与模拟器已有数据块同名、与先前装入的单元号相同、与先前的服务端口相同都是错误，`unit_ids` 中的单元是装入后模拟器的单元。未写 `unit_ids` 的服务应答模拟器的全部单元，包括之后装入的单元；
   - 与描述结构相同的对象用 `yaml(JSON.stringify(object))` 编译，因为 JSON 是 YAML 1.2 的子集。YAML 文本没有所在文件，其 `imports` 要写绝对路径或 `file:` URL；
   - `blocks`：数据块名到 Ldata 的映射；`block(name)` 取得一个数据块；`unit_map`：单元表；`servers`：服务实例，一个数组，第 `i` 项对应已装入描述（各次装入按顺序、一次装入的各来源按顺序连接后）中的第 `i` 个服务条目；每个服务的 `name` 是它的标签，即它在描述中的位置和地址，如 `servers[1] (modbus://0.0.0.0:503)`，因此可以按名称查找（`servers.find((server) => server.name === ...)`）；`scope`：描述装入的 layout-data 登记域（只读）；`layouts`：描述在该登记域中的布局（按名称，只读），键的顺序没有意义；`handler`：全部服务共用的 handler；
   - `start(options)`：启动尚未运行的服务：首次调用或 `stop()` 之后启动全部服务，否则启动上次调用以来装入的服务；运行中的服务不重启。模拟器没有服务时以 `Error` 拒绝。缺省为全部或全部不：任一服务启动失败时停掉全部服务，因此 `start()` 成功即全部在运行，失败即全部已停止；`{ partial: true }` 时尽力启动，已启动的服务保持运行。两种模式下有失败都以 `AggregateError` 拒绝，列出全部失败的服务：每项是一个 `Error`，消息以服务的 `name` 开头，如 `servers[1] (modbus://0.0.0.0:503): ...`，原始错误放在 `cause`；
@@ -94,57 +94,7 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 
 ## 5. 描述
 
-layout-data 的描述（见 [spec-description](https://github.com/goosy/layout-data/blob/main/doc/spec-description.md)），写在 YAML 1.2 文件或文本中，由 `desc_file` 或 `yaml` 编译，外加本包的根键 `units` 和 `servers`。它含四部分。这四部分也可以分写在多个来源里（一次 `load` 的 `sources` 列表）：各来源的 `blocks`、`units` 和 `servers` 按列表顺序连接，全部描述一并装入登记域；有多个来源时，本包的出错信息以来源开头：描述文件用其路径，`Description` 用 `description #N`，与 layout-data 对列表项的称呼相同。`blocks`、`units` 和 `servers` 可以各自省略，但一次装入至少要给出数据块或服务之一。条目接着先前装入的条目编号，所以 `blocks[i]`、`units[i]`、`servers[i]` 就是条目在模拟器中的位置。
-
-layout-data 读取 `imports`（引入其条目表的描述文件）、`layouts`（布局名列表）、`item_tables`（按名称给出的条目表）和 `blocks`，数据块条目中它读取 `name` 和 `layout`。数据块条目只定义数据块，没有本包的键：数据块在哪里提供、提供它的设备有哪些属性，写在单元条目中。描述是自包含的：数据块引用本描述 `layouts` 列出的布局，其条目表可以来自 `imports` 中的文件；单元条目只能放置本描述中的数据块。描述不指定登记域（§4）。
-
-```yaml
-# 1. layouts and item tables, in the format of layout-data
-layouts: [PUMP]
-item_tables:
-  PUMP:
-    - { name: id, type: UInt, offset: 0, init_value: 7 }
-    - { name: pressure, type: Real, offset: 16, init_value: 1.5 }
-
-# 2. the blocks, in the format of layout-data
-blocks:
-  - { name: pump_1, layout: PUMP }
-  - { name: pump_2, layout: PUMP }
-  - { name: pump_3, layout: PUMP }
-
-# 3. the units: the byte order of the device and the placement of its blocks
-units:
-  - unit_id: 1                     # 0..255
-    endian: LE                     # BE (default), LE, BEBS or LEBS
-    unmapped_read: zero            # zero (default) | refuse
-    unmapped_write: ignore         # ignore (default) | refuse
-    blocks:
-      pump_1: {}
-      pump_2: { start: 400, readonly: [pressure] }  # start: byte offset in the unit, even; readonly: none (default) | all | tag names
-  - unit_id: 3
-    blocks:
-      pump_3: { offset: 2 }        # offset: start byte inside the block, even
-
-# 4. the services
-servers:
-  - { protocol: tcp, host: 0.0.0.0, port: 502 }
-  - { protocol: rtu_over_tcp, port: 503 }
-  - { protocol: udp, port: 502 }
-  - { protocol: rtu, port: COM3, baud_rate: 9600, parity: none }
-```
-
-- `blocks[].name` 必须写明，是其布局的其他数据块、模拟器的其他数据块都未用过的字符串（layout-data 与本包）；`blocks[].layout` 是同一描述中的布局名；
-- `units[].unit_id` 必须写明，取值 0..255 的整数，不得与本次装入的其他单元条目或先前装入的单元重复：单元只在一次装入中声明，装入后不再改变。`units[].endian`（可选）是单元的字节序，取 `BE`、`LE`、`BEBS` 或 `LEBS`，缺省 `BE`（§3）。`units[].unmapped_read`（可选）取 `zero`（缺省）或 `refuse`，`units[].unmapped_write`（可选）取 `ignore`（缺省）或 `refuse`：单元如何应答对其未映射地址的读和写（§3）；
-- `units[].blocks` 必须写明，是非空对象，键是数据块名，值是该数据块的放置。放置有可选的 `start`（数据块在单元内的起始字节）和 `offset`（数据块从自身的第几个字节起对外提供），都是偶数非负整数，缺省为 0，`offset` 须小于数据块大小，使放置至少提供一个寄存器；`{}` 表示把整个数据块放在单元的字节 0 处。同一单元内各数据块的字节区间不得重叠；
-- 放置可以有 `readonly`（§3）：`none`（缺省）；`all`，整块只读，包括填充位；或该数据块布局中的 tag 名组成的非空列表，列出的 tag 只读。布局中没有的名字、重复的名字是错误；同时列出组合字和它的耦合位是允许的。只读 tag 落在放置没有提供的部分（`offset` 之前）时没有效果；
-  - 只读的点按 tag 声明，不按字节或寄存器区间：写描述的人以 tag 思考，区间要对照布局换算，布局一改就要跟着改；
-- 描述中的每个数据块都必须由本描述的单元条目放置，且只能放置一次：没有被放置、被放置两次，或由其他描述的单元条目放置，都是错误；
-- `servers[].protocol` 取 `tcp`、`rtu_over_tcp`、`udp`、`rtu_over_udp`、`rtu`；`tcp`、`rtu_over_tcp`、`udp` 和 `rtu_over_udp` 的 `host` 缺省 `0.0.0.0`、`port` 缺省 502，`port` 为 1..65535 的整数（es-modbus 不接受端口 0）；`rtu` 的 `port` 为串口路径，可带 `baud_rate`（正整数，缺省 9600）、`parity`（`none`、`odd` 或 `even`，缺省 `none`）、`data_bits`（5、6、7 或 8，缺省 8）、`stop_bits`（1、1.5 或 2，缺省 1）；
-- 两个 `tcp` / `rtu_over_tcp` 服务不得使用相同的 `host` 和 `port`，两个 `udp` / `rtu_over_udp` 服务也不得如此，不同 `host` 可用同一端口；TCP 与 UDP 的端口相互独立，一个 `tcp` 或 `rtu_over_tcp` 服务与一个 `udp` 或 `rtu_over_udp` 服务可以使用相同的 `host` 和 `port`；两个 `rtu` 服务不得使用同一串口路径；
-- 数据块条目只有 `name` 和 `layout` 两个键；单元条目只有 `unit_id`、`endian`、`unmapped_read`、`unmapped_write`、`blocks`，放置只有 `start`、`offset` 和 `readonly`；服务条目只有 `protocol`、`unit_ids`，以及 `tcp` / `rtu_over_tcp` / `udp` / `rtu_over_udp` 的 `host`、`port` 或 `rtu` 的 `port`、`baud_rate`、`parity`、`data_bits`、`stop_bits`；其他键是错误。根键不检查：`imports`、`layouts`、`item_tables`、`blocks`、`units`、`servers` 以外的键不被使用，可以存放任何内容（如 YAML 锚点）；
-- `servers[].unit_ids`（可选）：该服务应答的单元号，非空整数列表，取值 0..255，且每个单元号在装入后必须是模拟器的单元；缺省应答全部单元，包括之后装入的单元；
-- 条目表可以不写在描述里：描述用 `imports` 引入它们，并在 `layouts` 中列出自己的布局；布局文件也与其他来源一样是 `sources` 列表的一项：全部来源一并装入，列出同名且结构相同布局的描述共用该布局；
-- 所有服务共用同一个单元表和同一组数据块，`unit_ids` 只决定各服务应答哪些单元。
+`load` 接受的描述见 [spec-descriptions.zh-CN.md](spec-descriptions.zh-CN.md)：layout-data 的描述，写在 YAML 1.2 文件或文本中，由 `desc_file` 或 `yaml` 编译，外加本包的根键 `units` 和 `servers`。它给出布局及其条目表、数据块、放置数据块的单元以及服务。
 
 ## 6. 发布形态
 

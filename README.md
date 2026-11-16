@@ -118,7 +118,7 @@ emulator.on("request_refused", ({ kind, unit_id, addr, operation }) => console.w
 - Addresses with no block read as 0 / false and ignore writes (warned once per address and operation), unless the unit refuses them (`unmapped_read`, `unmapped_write`).
 - A read-only point (`readonly` of a placement) refuses the writes: FC 5 / 15 when it writes a read-only bit, FC 6 / 16 when it writes a register with a read-only bit. A refused request reads or writes nothing and is answered with exception 0x02.
 
-See [doc/spec.md](doc/spec.md) for the full specification and [doc/design.md](doc/design.md) for the implementation. Chinese editions: [doc/spec.zh-CN.md](doc/spec.zh-CN.md), [doc/design.zh-CN.md](doc/design.zh-CN.md).
+See [doc/spec.md](doc/spec.md) for the full specification, [doc/spec-descriptions.md](doc/spec-descriptions.md) for the descriptions and [doc/design.md](doc/design.md) for the implementation. Chinese editions: [doc/spec.zh-CN.md](doc/spec.zh-CN.md), [doc/spec-descriptions.zh-CN.md](doc/spec-descriptions.zh-CN.md), [doc/design.zh-CN.md](doc/design.zh-CN.md).
 
 ## Development
 

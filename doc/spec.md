@@ -29,7 +29,7 @@ Out of scope: the Modbus master (client), the business logic of a device (implem
 - Register `addr` corresponds to byte `addr * 2` of the unit.
 - Coil `addr` corresponds to bit `addr % 8` of byte `addr >> 3` of the unit.
 - Holding registers and input registers have the same content. Registers and coils are readable, and writable unless they are read-only.
-- Read-only points: a placement of a block may declare the whole block or some of its tags read-only (section 5). The declarations of the blocks of a unit make its read-only bits, in the bytes of each block: every bit of a block declared read-only as a whole (`all`), padding included; the bit of a read-only Bool; every bit of the bytes a read-only tag of another type occupies (a composite word, Byte, Int, Real and so on), so the coupled bits of a read-only composite word are read-only too. The other bits, padding included, are writable.
+- Read-only points: a placement of a block may declare the whole block or some of its tags read-only ([spec-descriptions.md](spec-descriptions.md)). The declarations of the blocks of a unit make its read-only bits, in the bytes of each block: every bit of a block declared read-only as a whole (`all`), padding included; the bit of a read-only Bool; every bit of the bytes a read-only tag of another type occupies (a composite word, Byte, Int, Real and so on), so the coupled bits of a read-only composite word are read-only too. The other bits, padding included, are writable.
   - FC 5 / FC 15: a request that writes a read-only bit is refused as a whole.
   - FC 6 / FC 16: a request that writes a register with a read-only bit in its 16 bits is refused as a whole.
   - So a register shared by a read-only tag and a writable tag cannot be written by FC 6 / FC 16, while the bits of the writable tag can still be written by FC 5 / FC 15, several consecutive bits of one FC 15 included; and a read-only tag that spans registers refuses an FC 16 that writes only one of them.
@@ -39,7 +39,7 @@ Out of scope: the Modbus master (client), the business logic of a device (implem
 - A read request emits one `access` of kind `read` per block it reaches, naming only the tags read; for coils, only the Bools of the bits read.
 - An error thrown by a listener of a block (`change`, `write`, `access`) when a request is committed neither undoes its writes nor affects the other blocks: the master gets a normal response, and the handler emits `listener_error` with `{ block, error }`.
 - An address in a unit with no block is unmapped. By default it reads as 0 / false, and a write to it is ignored. No exception is returned, so a read or a write across a gap still succeeds, and the handler emits `unmapped` for the unmapped points (see Events).
-  - A unit may refuse them instead (`unmapped_read`, `unmapped_write`, section 5): with `unmapped_read: refuse`, a read request (FC 1 / 2 / 3 / 4) that reaches an unmapped address of the unit is refused; with `unmapped_write: refuse`, a write request (FC 5 / 6 / 15 / 16) that does is refused. The two are independent, so a test can refuse the writes and keep the polling of a master succeeding.
+  - A unit may refuse them instead (`unmapped_read`, `unmapped_write`, [spec-descriptions.md](spec-descriptions.md)): with `unmapped_read: refuse`, a read request (FC 1 / 2 / 3 / 4) that reaches an unmapped address of the unit is refused; with `unmapped_write: refuse`, a write request (FC 5 / 6 / 15 / 16) that does is refused. The two are independent, so a test can refuse the writes and keep the polling of a master succeeding.
   - `unmapped` is emitted only for a request that succeeds: a refused request emits `request_refused` instead (see Events).
 - A unit id that a service does not answer is answered with exception code 0x0B by es-modbus over `tcp` and `udp`, and not answered at all on a serial bus (`rtu`, `rtu_over_tcp`, `rtu_over_udp`). An illegal function code, an illegal quantity, or an address out of range is answered with 0x01 / 0x03 / 0x02.
 - On a serial bus (`rtu`, `rtu_over_tcp`, `rtu_over_udp`), unit 0 is the broadcast address: es-modbus executes the writes to it and never answers, so the blocks of unit 0 cannot be read through such a service. Units 248 to 255 are reserved on a serial bus. A service of these protocols that answers unit 0 or a unit from 248 to 255 gives a `warning` event of the emulator (see Events); it is not an error.
@@ -47,7 +47,7 @@ Out of scope: the Modbus master (client), the business logic of a device (implem
 ## 4. Interface
 
 - `Modbus_Emulator(scope)`: the main constructor. It creates an emulator without blocks and services, so that listeners can be attached before anything is loaded. `scope` (optional) is the name of the layout-data scope the descriptions are loaded into, `modbus_emulator` by default; a name that is not an identifier throws the error of `create_scope`.
-  - `load(sources)`: loads descriptions, and may be called any number of times. `sources` is a source or a list of sources, read together; each source is a description file (a path or a `file:` URL, section 5), which the package compiles with `desc_file`, or a `Description` of layout-data, compiled by the caller with the forwarded `desc_file` or `yaml`; the two may be mixed in a list. Any other value is not a source. Description files serve the end users, who write configuration files; a `Description` serves the programs that generate their descriptions. The descriptions give the layouts, the blocks to create, the units that place them and the parameters of the services, and `load` builds the blocks, the units and the services from them, without starting the services. It returns `{ blocks, servers }`: the blocks (a map from block names to Ldata) and the servers this call added. A load is checked against the emulator as a whole: a block name of the emulator, a unit of an earlier load and a port of an earlier service are errors, and the units of `unit_ids` are the ones of the emulator once loaded. A service without `unit_ids` answers every unit of the emulator, including the units of later loads.
+  - `load(sources)`: loads descriptions, and may be called any number of times. `sources` is a source or a list of sources, read together; each source is a description file (a path or a `file:` URL, [spec-descriptions.md](spec-descriptions.md)), which the package compiles with `desc_file`, or a `Description` of layout-data, compiled by the caller with the forwarded `desc_file` or `yaml`; the two may be mixed in a list. Any other value is not a source. Description files serve the end users, who write configuration files; a `Description` serves the programs that generate their descriptions. The descriptions give the layouts, the blocks to create, the units that place them and the parameters of the services, and `load` builds the blocks, the units and the services from them, without starting the services. It returns `{ blocks, servers }`: the blocks (a map from block names to Ldata) and the servers this call added. A load is checked against the emulator as a whole: a block name of the emulator, a unit of an earlier load and a port of an earlier service are errors, and the units of `unit_ids` are the ones of the emulator once loaded. A service without `unit_ids` answers every unit of the emulator, including the units of later loads.
   - An object of the shape of a description is compiled with `yaml(JSON.stringify(object))`, as JSON is YAML 1.2. YAML text has no file, so its `imports` take absolute paths or `file:` URLs.
   - `blocks`: a map from block names to Ldata. `block(name)` gets one block. `unit_map`: the unit map. `servers`: the server instances, an array whose item `i` is the service entry `i` of the descriptions loaded (the loads in order, the sources of a load joined in order); the `name` of each server is its label, its place and address in the description such as `servers[1] (modbus://0.0.0.0:503)`, so a server can be found by name (`servers.find((server) => server.name === ...)`). `scope`: the layout-data scope the descriptions are loaded into (read-only). `layouts`: the layouts of the descriptions in that scope, by name (read-only). The order of its keys has no meaning. `handler`: the handler shared by all the servers.
   - `start(options)`: starts the services that are not running: all of them at the first call or after `stop()`, and the services loaded since the last call otherwise; a running service is not restarted. An emulator without services rejects with an `Error`. By default it is all or nothing: when any service fails to start, all services are stopped, so a resolved `start()` means that all of them run and a rejected one that none runs. With `{ partial: true }` it starts what it can, and the services that started keep running. In both modes a failure rejects with an `AggregateError` that lists every failed service: each item is an `Error` whose message starts with the `name` of the service, such as `servers[1] (modbus://0.0.0.0:503): ...`, with the original error as its `cause`.
@@ -96,57 +96,7 @@ The package reports its diagnostics as events and outputs nothing itself.
 
 ## 5. Description
 
-A description of layout-data (see [spec-description](https://github.com/goosy/layout-data/blob/main/doc/spec-description.md)), written in a YAML 1.2 file or text and compiled by `desc_file` or `yaml`, with the root keys `units` and `servers` of this package. It has four parts. The parts may also be spread over several sources (the `sources` list of one `load`): the `blocks`, the `units` and the `servers` of the sources are joined in the order of the list, all the descriptions are loaded together into the scope, and with several sources an error of this package is prefixed by the source: the path of a description file, or `description #N` for a `Description`, the name layout-data gives an item of a list. The `blocks`, the `units` and the `servers` may each be omitted, but a load gives at least blocks or servers. The entries are numbered after the ones of the earlier loads, so that `blocks[i]`, `units[i]` and `servers[i]` are the places of the entries in the emulator.
-
-layout-data reads `imports` (the description files whose item tables it uses), `layouts` (the list of layout names), `item_tables` (the item tables by name) and `blocks`, of whose entries it reads `name` and `layout`. A block entry only defines a block and has no key of this package: where a block is served, and the properties of the device that serves it, are written in the unit entries. A description is self-contained: a block names a layout listed by the `layouts` of its own description, whose item tables may come from the files of `imports`, and a unit places blocks of its own description. A description names no scope (section 4).
-
-```yaml
-# 1. layouts and item tables, in the format of layout-data
-layouts: [PUMP]
-item_tables:
-  PUMP:
-    - { name: id, type: UInt, offset: 0, init_value: 7 }
-    - { name: pressure, type: Real, offset: 16, init_value: 1.5 }
-
-# 2. the blocks, in the format of layout-data
-blocks:
-  - { name: pump_1, layout: PUMP }
-  - { name: pump_2, layout: PUMP }
-  - { name: pump_3, layout: PUMP }
-
-# 3. the units: the byte order of the device and the placement of its blocks
-units:
-  - unit_id: 1                     # 0..255
-    endian: LE                     # BE (default), LE, BEBS or LEBS
-    unmapped_read: zero            # zero (default) | refuse
-    unmapped_write: ignore         # ignore (default) | refuse
-    blocks:
-      pump_1: {}
-      pump_2: { start: 400, readonly: [pressure] }  # start: byte offset in the unit, even; readonly: none (default) | all | tag names
-  - unit_id: 3
-    blocks:
-      pump_3: { offset: 2 }        # offset: start byte inside the block, even
-
-# 4. the services
-servers:
-  - { protocol: tcp, host: 0.0.0.0, port: 502 }
-  - { protocol: rtu_over_tcp, port: 503 }
-  - { protocol: udp, port: 502 }
-  - { protocol: rtu, port: COM3, baud_rate: 9600, parity: none }
-```
-
-- `blocks[].name` is required, a string not used by another block of its layout (layout-data) nor by a block of the emulator. `blocks[].layout` is a layout name of the same description.
-- `units[].unit_id` is required, an integer from 0 to 255, not used by another unit entry of the load nor by a unit of an earlier load: a unit is declared in one load, and does not change once loaded. `units[].endian` (optional) is the byte order of the unit, `BE`, `LE`, `BEBS` or `LEBS`, `BE` by default (section 3). `units[].unmapped_read` (optional) is `zero` (the default) or `refuse`, and `units[].unmapped_write` (optional) is `ignore` (the default) or `refuse`: how the unit answers the reads and the writes of its unmapped addresses (section 3).
-- `units[].blocks` is required, a non-empty object from block names to placements. A placement has the optional `start`, the byte of the unit where the block starts, and `offset`, the byte of the block from which it is served, both even non-negative integers, 0 by default, `offset` below the size of the block, so that a placement serves at least one register; `{}` places a block at byte 0 of the unit, from its first byte. The byte ranges of the blocks of one unit may not overlap.
-- A placement may have `readonly` (section 3): `none` (the default), `all` for the whole block, padding included, or a non-empty list of tag names of the layout of the block, read-only. A name that the layout does not have, or a name given twice, is an error. Listing a composite word and its coupled bits is allowed. A read-only tag outside the part a placement serves (before its `offset`) has no effect.
-  - The read-only points are declared by tag, not by byte or register ranges: the people who write descriptions think in tags, and ranges would be worked out from the layout and changed with it.
-- Each block of a description must be placed by a unit entry of the same description, and only once: a block placed by none, placed twice, or placed by a unit entry of another description is an error.
-- `servers[].protocol` is one of `tcp`, `rtu_over_tcp`, `udp`, `rtu_over_udp`, `rtu`. For `tcp`, `rtu_over_tcp`, `udp` and `rtu_over_udp`, `host` defaults to `0.0.0.0` and `port` to 502; `port` is an integer from 1 to 65535 (es-modbus does not accept port 0). For `rtu`, `port` is the serial port path, with optional `baud_rate` (a positive integer, default 9600), `parity` (`none`, `odd` or `even`, default `none`), `data_bits` (5, 6, 7 or 8, default 8) and `stop_bits` (1, 1.5 or 2, default 1).
-- Two `tcp` / `rtu_over_tcp` services may not use the same `host` and `port`, and neither may two `udp` / `rtu_over_udp` services; services on different hosts may use the same port. TCP and UDP ports are apart: a `tcp` or `rtu_over_tcp` service and a `udp` or `rtu_over_udp` service may use the same `host` and `port`. Two `rtu` services may not use the same serial port path.
-- A block entry has only the keys `name` and `layout`. A unit entry has only `unit_id`, `endian`, `unmapped_read`, `unmapped_write` and `blocks`, and a placement only `start`, `offset` and `readonly`. A service entry has only `protocol`, `unit_ids`, and `host`, `port` for `tcp` / `rtu_over_tcp` / `udp` / `rtu_over_udp`, or `port`, `baud_rate`, `parity`, `data_bits`, `stop_bits` for `rtu`. Another key is an error. The root keys are not checked: a key other than `imports`, `layouts`, `item_tables`, `blocks`, `units` and `servers` is not used, so it may hold anything (YAML anchors, for instance).
-- `servers[].unit_ids` (optional) are the unit ids the service answers: a non-empty list of integers from 0 to 255, each of which must be a unit of the emulator once loaded. By default the service answers all units, including the units of later loads.
-- The item tables may be kept out of a description, which imports them with `imports` and lists its layouts under `layouts`. A layout file is also an item of the `sources` list like the others: all the sources are loaded together, and the descriptions that list a layout of the same name and structure share it.
-- All services share one unit map and the same data blocks. `unit_ids` only decides which units each service answers.
+The descriptions that `load` takes are specified in [spec-descriptions.md](spec-descriptions.md): a description of layout-data, written in a YAML 1.2 file or text and compiled by `desc_file` or `yaml`, with the root keys `units` and `servers` of this package. It gives the layouts and their item tables, the blocks, the units that place the blocks, and the services.
 
 ## 6. Distribution
 

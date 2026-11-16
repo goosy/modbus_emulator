@@ -1,4 +1,4 @@
-# An example emulator description (doc/spec.md 5).
+# An example emulator description (doc/spec-descriptions.md).
 layouts: [PUMP]
 item_tables:
   PUMP:
