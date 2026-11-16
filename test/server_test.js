@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import test, { describe } from "node:test";
 import { Modbus_Client } from "es-modbus";
-import { Unit_Map, create_tcp_server, create_rtu_server, create_handler } from "./target.js";
+import { Unit_Map, create_tcp_server, create_udp_server, create_rtu_server, create_handler } from "./target.js";
 import { HOST, ephemeral, listening_port, master_options } from "./helpers.js";
 
 const UNIT = 5;
@@ -239,6 +239,55 @@ describe("create_tcp_server", () => {
 		for (const port of [0, -1, 65536, 1.5, "502"]) {
 			assert.throws(() => create_tcp_server(new Unit_Map(), { port }), { name: "RangeError", message: `Invalid port: ${port}` });
 		}
+	});
+});
+
+describe("create_udp_server", () => {
+	/** Starts a UDP server with one unit and an es-modbus client in the master role. */
+	async function setup(t, { rtu = false } = {}) {
+		const data = fake_block(32);
+		const unit_map = new Unit_Map();
+		unit_map.attach_unit(UNIT, data, { start: 0 });
+		const server = ephemeral(create_udp_server(unit_map, { host: HOST, rtu }));
+		await server.start();
+		t.after(() => server.stop());
+		const master = new Modbus_Client(master_options(listening_port(server), rtu, true));
+		master.on("error", () => { });
+		t.after(() => master.disconnect());
+		return { server, master, data };
+	}
+
+	test("serves the registers over Modbus UDP, and a unit not attached with exception 0x0B", async (t) => {
+		const { server, master, data } = await setup(t);
+
+		assert.equal(server.protocol, "udp");
+		assert.deepEqual(await master.read([3, 1, 2], UNIT), data.buffer.subarray(2, 6));
+		assert.equal(await master.write([6, 0, 1], 0x1234, UNIT), true);
+		assert.equal(data.buffer.readUInt16BE(0), 0x1234);
+		await assert.rejects(master.read([3, 0, 1], OTHER_UNIT), { message: "response error: 11" });
+	});
+
+	test("rtu: true serves RTU framing in the datagrams", async (t) => {
+		const { server, master, data } = await setup(t, { rtu: true });
+
+		assert.equal(server.protocol, "rtu_over_udp");
+		assert.deepEqual(await master.read([4, 0, 3], UNIT), data.buffer.subarray(0, 6));
+	});
+
+	test("host, port, unit_ids and name are those of create_tcp_server", () => {
+		const unit_map = new Unit_Map();
+		unit_map.attach_unit(UNIT, fake_block(2), { start: 0 });
+		const server = create_udp_server(unit_map, { host: "::1", port: 1502, name: "plant" });
+
+		assert.equal(server.host, "::1");
+		assert.equal(server.port, 1502);
+		assert.equal(server.name, "plant");
+		assert.equal(server.is_valid_unit_id(UNIT), true);
+		assert.equal(server.is_valid_unit_id(OTHER_UNIT), false);
+		for (const port of [0, 65536]) {
+			assert.throws(() => create_udp_server(unit_map, { port }), { name: "RangeError", message: `Invalid port: ${port}` });
+		}
+		assert.throws(() => create_udp_server(), /unit_map is required/);
 	});
 });
 

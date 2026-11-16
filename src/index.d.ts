@@ -12,11 +12,11 @@ export type {
 export interface Modbus_Server extends EventEmitter {
 	/** Identifies the server in events and errors; the label of its service in an emulator. */
 	readonly name: string;
-	/** `tcp`, `rtu_over_tcp` or `rtu`. */
-	readonly protocol: "tcp" | "rtu_over_tcp" | "rtu";
-	/** The address the server listens on; null for `rtu`. */
+	/** `tcp`, `rtu_over_tcp`, `udp`, `rtu_over_udp` or `rtu`. */
+	readonly protocol: "tcp" | "rtu_over_tcp" | "udp" | "rtu_over_udp" | "rtu";
+	/** The address the server listens on or binds; null for `rtu`. */
 	readonly host: string | null;
-	/** The TCP port; null for `rtu`. */
+	/** The TCP or UDP port; null for `rtu`. */
 	readonly port: number | null;
 	/** Whether the server answers a unit id. */
 	is_valid_unit_id(unit_id: number): boolean;
@@ -82,10 +82,11 @@ export interface Modbus_Handler extends EventEmitter {
 }
 
 export interface Server_Options {
-	/** The address to listen on; `0.0.0.0` by default. */
+	/** The address to listen on (TCP) or to bind (UDP); `0.0.0.0` by default. */
 	host?: string;
 	/** The port number; 502 by default, from 1 to 65535. */
 	port?: number;
+	/** RTU frames instead of MBAP frames: RTU over TCP, or RTU over UDP. */
 	rtu?: boolean;
 	unit_ids?: number[];
 	handler?: Modbus_Handler;
@@ -159,6 +160,7 @@ export class Unit_Map {
 
 export function create_handler(unit_map: Unit_Map): Modbus_Handler;
 export function create_tcp_server(unit_map: Unit_Map, options?: Server_Options): Modbus_Server;
+export function create_udp_server(unit_map: Unit_Map, options?: Server_Options): Modbus_Server;
 export function create_rtu_server(path: string, unit_map: Unit_Map, options?: Serial_Options): Modbus_Server;
 
 /**

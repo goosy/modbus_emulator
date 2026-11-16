@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { fileURLToPath } from "node:url";
 import { create_scope, desc_file, get_scope } from "layout-data";
 import { ENDIANS, READONLY_VALUES, UNMAPPED_READS, UNMAPPED_WRITES, Unit_Map, create_handler, readonly_errors } from "./unit_map.js";
-import { create_tcp_server, create_rtu_server } from "./server.js";
+import { create_tcp_server, create_udp_server, create_rtu_server } from "./server.js";
 
 /** The scope the descriptions are loaded into when the caller names none (doc/spec.md 4). */
 const DEFAULT_SCOPE = "modbus_emulator";
@@ -12,7 +12,11 @@ const PARITIES = ["none", "odd", "even"];
 const DATA_BITS = [5, 6, 7, 8];
 const STOP_BITS = [1, 1.5, 2];
 
-const PROTOCOLS = ["tcp", "rtu_over_tcp", "rtu"];
+const PROTOCOLS = ["tcp", "rtu_over_tcp", "udp", "rtu_over_udp", "rtu"];
+// the protocols of a UDP socket, whose ports are apart from the TCP ones
+const UDP_PROTOCOLS = ["udp", "rtu_over_udp"];
+// the protocols with MBAP frames, in which unit 0 and units 248 to 255 are ordinary units
+const MBAP_PROTOCOLS = ["tcp", "udp"];
 
 // the events of an es-modbus server, forwarded as server_<name>, with the field of their argument
 const SERVER_EVENTS = {
@@ -35,10 +39,12 @@ const HANDLER_EVENTS = ["unmapped", "unmapped_limit", "request_refused", "reques
 const BLOCK_KEYS = ["name", "layout"];
 const UNIT_KEYS = ["unit_id", "endian", "unmapped_read", "unmapped_write", "blocks"];
 const PLACEMENT_KEYS = ["start", "offset", "readonly"];
-const TCP_SERVER_KEYS = ["protocol", "unit_ids", "host", "port"];
+const NET_SERVER_KEYS = ["protocol", "unit_ids", "host", "port"];
 const SERVER_KEYS = {
-	tcp: TCP_SERVER_KEYS,
-	rtu_over_tcp: TCP_SERVER_KEYS,
+	tcp: NET_SERVER_KEYS,
+	rtu_over_tcp: NET_SERVER_KEYS,
+	udp: NET_SERVER_KEYS,
+	rtu_over_udp: NET_SERVER_KEYS,
 	rtu: ["protocol", "unit_ids", "port", "baud_rate", "parity", "data_bits", "stop_bits"],
 };
 
@@ -57,10 +63,21 @@ function label_of(source, index, count) {
 	return count > 1 ? `description #${index + 1}` : "description";
 }
 
-/** The address of a server in its errors: modbus://host:port, rtu://host:port or serial://path. */
+// the scheme of the address of a server, by protocol
+const SCHEMES = {
+	tcp: "modbus",
+	rtu_over_tcp: "rtu",
+	udp: "modbus+udp",
+	rtu_over_udp: "rtu+udp",
+	rtu: "serial",
+};
+
+/**
+ * The address of a server in its errors: modbus://host:port, rtu://host:port, modbus+udp://host:port,
+ * rtu+udp://host:port or serial://path.
+ */
 function address_of({ protocol, host = "0.0.0.0", port = 502 }) {
-	if (protocol === "rtu") return `serial://${port}`;
-	return `${protocol === "rtu_over_tcp" ? "rtu" : "modbus"}://${host}:${port}`;
+	return `${SCHEMES[protocol]}://${protocol === "rtu" ? port : `${host}:${port}`}`;
 }
 
 /** Whether a value is a mapping of a description: an object that is not a list. */
@@ -103,7 +120,7 @@ export class Modbus_Emulator extends EventEmitter {
 	layouts = {};
 	/** @type {import('es-modbus').Modbus_Server[]} Named by their labels, e.g. `servers[1] (modbus://0.0.0.0:503)`. */
 	servers = [];
-	// the label of the server of each TCP address or serial port path
+	// the label of the server of each TCP address, UDP address or serial port path, by its key (#read_servers)
 	#addresses = new Map();
 	// the servers without unit_ids, which answer every unit of the unit map
 	#all_unit_servers = [];
@@ -249,13 +266,13 @@ export class Modbus_Emulator extends EventEmitter {
 			this.#check_serial_units(server, added_units);
 		}
 		const servers = [];
-		for (const { where, options, address } of checked_servers) {
+		for (const { where, options, key } of checked_servers) {
 			const server = this.#create_server(options, `${where} (${address_of(options)})`);
 			// listening to error also keeps an error of the server from throwing
 			for (const [name, field] of Object.entries(SERVER_EVENTS)) {
 				server.on(name, (arg) => this.emit(`server_${name}`, field ? { server, [field]: arg } : { server }));
 			}
-			this.#addresses.set(address, where);
+			this.#addresses.set(key, where);
 			if (options.unit_ids === undefined) this.#all_unit_servers.push(server);
 			this.servers.push(server);
 			servers.push(server);
@@ -285,9 +302,9 @@ export class Modbus_Emulator extends EventEmitter {
 		this.#held.clear();
 	}
 
-	/** Emits a warning for the broadcast and reserved units a server on a serial bus answers (es-modbus: protocol not tcp). */
+	/** Emits a warning for the broadcast and reserved units a server on a serial bus answers (es-modbus: protocol not tcp nor udp). */
 	#check_serial_units(server, unit_ids) {
-		if (server.protocol === "tcp") return;
+		if (MBAP_PROTOCOLS.includes(server.protocol)) return;
 		const warn = (message) => this.emit("warning", { server, message: `${server.name}: ${message}` });
 		if (unit_ids.includes(0)) warn("unit 0 is the broadcast address of a serial bus, written but never answered");
 		const reserved = unit_ids.filter((id) => RESERVED_UNITS.includes(id));
@@ -412,7 +429,7 @@ export class Modbus_Emulator extends EventEmitter {
 
 	#read_servers(entries, errors) {
 		const result = [];
-		// the earlier server of each TCP address or serial port path, of this load or of an earlier one
+		// the earlier server of each TCP address, UDP address or serial port path, of this load or of an earlier one
 		const used = new Map(this.#addresses);
 		for (const { entry: server, where } of entries) {
 			const { protocol } = server ?? {};
@@ -421,7 +438,9 @@ export class Modbus_Emulator extends EventEmitter {
 				continue;
 			}
 			check_keys(server, SERVER_KEYS[protocol], where, errors);
+			// the address of the port, and its key among the ports in use: a UDP port is apart from the TCP ones
 			let address;
+			let key;
 			if (protocol === "rtu") {
 				if (typeof server.port !== "string" || server.port === "") {
 					errors.push(`${where}: port must be a serial device path`);
@@ -435,26 +454,29 @@ export class Modbus_Emulator extends EventEmitter {
 				if (!STOP_BITS.includes(stop_bits)) errors.push(`${where}: stop_bits must be one of ${STOP_BITS.join(", ")}`);
 				if (errors.length > before) continue;
 				address = server.port;
+				key = address;
 			} else {
 				const { host = "0.0.0.0", port = 502 } = server;
+				const udp = UDP_PROTOCOLS.includes(protocol);
 				if (!Number.isInteger(port) || port < 1 || port > 65535) {
-					errors.push(`${where}: port must be a TCP port number from 1 to 65535`);
+					errors.push(`${where}: port must be a ${udp ? "UDP" : "TCP"} port number from 1 to 65535`);
 					continue;
 				}
 				address = `${host}:${port}`;
+				key = udp ? `udp ${address}` : address;
 			}
-			if (used.has(address)) {
-				errors.push(`${where}: port ${address} is already used by ${used.get(address)}`);
+			if (used.has(key)) {
+				errors.push(`${where}: port ${address} is already used by ${used.get(key)}`);
 				continue;
 			}
-			used.set(address, where);
+			used.set(key, where);
 			const { unit_ids } = server;
 			if (unit_ids !== undefined && !(Array.isArray(unit_ids) && unit_ids.length > 0
 				&& unit_ids.every((id) => Number.isInteger(id) && id >= 0 && id <= 255))) {
 				errors.push(`${where}: unit_ids must be a non-empty list of integers from 0 to 255`);
 				continue;
 			}
-			result.push({ where, options: server, address });
+			result.push({ where, options: server, key });
 		}
 		return result;
 	}
@@ -474,7 +496,8 @@ export class Modbus_Emulator extends EventEmitter {
 		if (protocol === "rtu") {
 			return create_rtu_server(port, this.unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, name });
 		}
-		return create_tcp_server(this.unit_map, { host, port, rtu: protocol === "rtu_over_tcp", unit_ids, handler, name });
+		const create = UDP_PROTOCOLS.includes(protocol) ? create_udp_server : create_tcp_server;
+		return create(this.unit_map, { host, port, rtu: protocol.startsWith("rtu_over_"), unit_ids, handler, name });
 	}
 
 	/**

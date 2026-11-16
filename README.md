@@ -1,10 +1,10 @@
 # modbus-emulator
 
-A Modbus device emulator library. It provides Modbus slave services (TCP, RTU over TCP, RTU) over structured data blocks, and exposes the data through the Ldata / Ltag API of [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md), so your code can compute on the data to emulate a running device.
+A Modbus device emulator library. It provides Modbus slave services (TCP, RTU over TCP, UDP, RTU over UDP, RTU) over structured data blocks, and exposes the data through the Ldata / Ltag API of [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md), so your code can compute on the data to emulate a running device.
 
 ## Features
 
-- Slave transports: Modbus TCP, RTU over TCP, RTU (serial port).
+- Slave transports: Modbus TCP, RTU over TCP, Modbus UDP, RTU over UDP, RTU (serial port).
 - Several services at once, sharing the same data blocks.
 - Blocks are described in YAML (a file or text in code), or assembled in code with `Unit_Map`.
 - Writes from the master go through Ldata, so the `change` and `write` events fire as usual.
@@ -92,7 +92,7 @@ await server.start();
 
 Take `Ldata`, `create_scope`, `get_scope`, `yaml` and `desc_file` from this package rather than from layout-data, so that there is one copy of layout-data in the process: two copies share no scope.
 
-`create_rtu_server(path, unit_map, options)` creates an RTU slave on a serial port. `create_handler(unit_map)` returns the es-modbus server handler for fully custom assembly. The factories add no listener: listen to `error` of each server, which throws when it has no listener.
+`create_udp_server(unit_map, options)` creates a Modbus UDP server, or RTU over UDP with `rtu: true`, with the options of `create_tcp_server`. `create_rtu_server(path, unit_map, options)` creates an RTU slave on a serial port. `create_handler(unit_map)` returns the es-modbus server handler for fully custom assembly. The factories add no listener: listen to `error` of each server, which throws when it has no listener.
 
 ### Events
 

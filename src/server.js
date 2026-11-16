@@ -17,7 +17,32 @@ import { create_handler } from "./unit_map.js";
  * @return {import('es-modbus').Modbus_Server} The server instance.
  * @throws {RangeError} When port is not an integer from 1 to 65535.
  */
-export function create_tcp_server(unit_map, { host = "0.0.0.0", port = 502, rtu = false, unit_ids: _unit_ids, handler: _handler, name } = {}) {
+export function create_tcp_server(unit_map, { rtu = false, ...options } = {}) {
+	return create_net_server(unit_map, rtu ? "rtu_over_tcp" : "tcp", options);
+}
+
+/**
+ * Creates a Modbus UDP server, or an RTU-over-UDP server with `rtu: true`.
+ * The server is not started: call `server.start()`, which binds the UDP socket. No listener is
+ * added to it: listen to its `error` event at least, which throws when it has no listener.
+ *
+ * @param {Unit_Map} unit_map - The data blocks served per unit id.
+ * @param {Object} [options]
+ * @param {string} [options.host='0.0.0.0'] - The address to bind.
+ * @param {number} [options.port=502] - The port number, from 1 to 65535.
+ * @param {boolean} [options.rtu=false] - Use RTU framing in the datagrams (RTU-over-UDP).
+ * @param {number[]} [options.unit_ids] - The unit ids this server answers; every unit of the unit map when omitted.
+ * @param {Object} [options.handler] - The handler to serve, from `create_handler`; servers of one unit map can share it. Built from the unit map when omitted.
+ * @param {string} [options.name] - The name of the server, which identifies it in events and errors; `Modbus_Server` by default.
+ * @return {import('es-modbus').Modbus_Server} The server instance.
+ * @throws {RangeError} When port is not an integer from 1 to 65535.
+ */
+export function create_udp_server(unit_map, { rtu = false, ...options } = {}) {
+	return create_net_server(unit_map, rtu ? "rtu_over_udp" : "udp", options);
+}
+
+/** Creates a server of a TCP or UDP transport of es-modbus, named by its option. */
+function create_net_server(unit_map, transport, { host = "0.0.0.0", port = 502, unit_ids: _unit_ids, handler: _handler, name }) {
 	if (unit_map === undefined || unit_map === null) throw new Error("unit_map is required");
 	// checked here: es-modbus reports a bad port of the host:port target as an invalid host
 	if (!Number.isInteger(port) || port < 1 || port > 65535) throw new RangeError(`Invalid port: ${port}`);
@@ -26,7 +51,7 @@ export function create_tcp_server(unit_map, { host = "0.0.0.0", port = 502, rtu 
 	const handler = _handler ?? create_handler(unit_map);
 	// an IPv6 host is written in brackets in the host:port target of es-modbus
 	const target = `${host.includes(":") ? `[${host}]` : host}:${port}`;
-	return new Modbus_Server(handler, { [rtu ? "rtu_over_tcp" : "tcp"]: target, unit_id: unit_ids, name });
+	return new Modbus_Server(handler, { [transport]: target, unit_id: unit_ids, name });
 }
 
 /**

@@ -97,9 +97,9 @@ test("the entries are numbered after the ones of the earlier loads", () => {
 	assert.deepEqual(errors_of(emulator, description_of({
 		blocks: [block("y"), { name: "z", layout: "ONE", unit_id: 2 }],
 		units: [unit(300, "y", "z")],
-		servers: [{ protocol: "udp" }],
+		servers: [{ protocol: "modbus" }],
 	})), [
-		"servers[1]: protocol must be one of tcp, rtu_over_tcp, rtu",
+		"servers[1]: protocol must be one of tcp, rtu_over_tcp, udp, rtu_over_udp, rtu",
 		"blocks[2]: unknown key unit_id",
 		"units[1]: unit_id must be an integer from 0 to 255",
 	]);

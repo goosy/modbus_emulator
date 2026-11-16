@@ -4,7 +4,7 @@
 
 modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站服务，并通过 [layout-data](https://github.com/goosy/layout-data/blob/main/doc/spec-data-api.md) 的 Ldata / Ltag 对外提供操作 API，使调用方可以施加额外的运算，模拟一个数据块的运行。
 
-- 从站服务的传输：Modbus TCP、RTU over TCP、RTU（串口）；
+- 从站服务的传输：Modbus TCP、RTU over TCP、Modbus UDP、RTU over UDP、RTU（串口）；
 - 同一个模拟器可以同时提供多个服务，共用同一组数据块；
 - 以库的形式发布；控制器等程序可以用它的服务端部分，向上位机（HMI/SCADA）发布自己的数据块。
 
@@ -39,8 +39,8 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - 单元内没有数据块的地址是未映射的。缺省时它读为 0 / false，写入被忽略，不应答异常，因此跨越空档的读写仍能成功，handler 为未映射的点发出 `unmapped`（见“事件”）；
   - 单元也可以改为拒绝（`unmapped_read`、`unmapped_write`，§5）：`unmapped_read: refuse` 时，读到该单元未映射地址的读请求（FC 1 / 2 / 3 / 4）被拒绝；`unmapped_write: refuse` 时，写请求（FC 5 / 6 / 15 / 16）同样被拒绝。两者相互独立，测试可以只拒绝写入，同时让主站的轮询照常成功；
   - 只有成功的请求才发出 `unmapped`：被拒的请求改为发出 `request_refused`（见“事件”）；
-- 服务不应答的单元号，在 `tcp` 下由 es-modbus 应答异常码 0x0B，在串行总线（`rtu`、`rtu_over_tcp`）上不作应答；非法功能码、数量或地址越界应答 0x01 / 0x03 / 0x02；
-- 在串行总线（`rtu`、`rtu_over_tcp`）上，unit 0 是广播地址：es-modbus 执行对它的写入，但从不应答，所以经这类服务读不到 unit 0 的数据块；248..255 在串行总线上是保留地址。这类协议的服务应答 unit 0 或 248..255 中的单元时，模拟器发出 `warning` 事件（见“事件”），不作为错误。
+- 服务不应答的单元号，在 `tcp` 和 `udp` 下由 es-modbus 应答异常码 0x0B，在串行总线（`rtu`、`rtu_over_tcp`、`rtu_over_udp`）上不作应答；非法功能码、数量或地址越界应答 0x01 / 0x03 / 0x02；
+- 在串行总线（`rtu`、`rtu_over_tcp`、`rtu_over_udp`）上，unit 0 是广播地址：es-modbus 执行对它的写入，但从不应答，所以经这类服务读不到 unit 0 的数据块；248..255 在串行总线上是保留地址。这类协议的服务应答 unit 0 或 248..255 中的单元时，模拟器发出 `warning` 事件（见“事件”），不作为错误。
 
 ## 4. 接口
 
@@ -53,6 +53,7 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
   - 布局登记域：描述不指定登记域，登记域只在代码中选择。`load` 把描述装入名为 `scope` 的登记域，不存在时创建（layout-data 的 `get_scope` / `create_scope`），它使这些布局与调用方、其他使用 layout-data 的库的登记域互不相干。装入就是 layout-data 的 `load`：在一个登记域中，与已有布局同名且结构相同的布局共用，同名而结构不同、或结构相同而名称不同是错误；这样的布局要给模拟器指定不同的登记域。每个数据块是由其布局建立的 Ldata，布局持有数据块名：同一布局的同一数据块名是错误，直到持有它的模拟器停止（`stop()`）。因此先前的模拟器 `stop()` 后，另一个模拟器可以在同一登记域中装入同一份描述，同时装入多个则用不同的登记域。模拟器在 `stop()` 后仍保有其数据块，所以向它装入同名数据块仍是错误；
   - 来源不合法时抛出 `Error`，其 `errors` 属性列出全部违规项：本包的、登记域 `load` 的，以及描述文件的 `desc_file` 错误（它们指明文件，文件无法读取也是其中一项）；既不是描述文件也不是 `Description` 的值也是其中一项。`Description` 的编译错误在调用方编译时由 `desc_file` 或 `yaml` 抛出。装入失败时什么也不改变：模拟器的数据块、单元表、服务、布局以及登记域都保持调用前的状态。
 - `create_tcp_server(unit_map, { host, port, rtu, unit_ids, handler, name })`：创建 Modbus TCP 服务，`host` 缺省 `0.0.0.0`、`port` 缺省 502（1..65535 的整数，否则抛出 `RangeError`），`unit_map` 必填；`rtu: true` 时在 TCP 套接字上使用 RTU 帧（RTU over TCP）。返回 es-modbus 的 `Modbus_Server`，未启动。
+- `create_udp_server(unit_map, { host, port, rtu, unit_ids, handler, name })`：创建 Modbus UDP 服务，选项和缺省值与 `create_tcp_server` 相同，`host` 是其 UDP 套接字绑定的地址；`rtu: true` 时在数据报中使用 RTU 帧（RTU over UDP）。返回 es-modbus 的 `Modbus_Server`，未启动，套接字在 `start()` 时绑定。
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, name })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
 - `name`：可选，`Modbus_Server` 的 `name`，在事件和错误中标明服务；es-modbus 的缺省值为 `Modbus_Server`；
 - `Unit_Map` / `create_handler(unit_map)`：单元表和 es-modbus 的服务端 handler，供不用描述的调用方（如控制器）自行组装。
@@ -128,6 +129,7 @@ units:
 servers:
   - { protocol: tcp, host: 0.0.0.0, port: 502 }
   - { protocol: rtu_over_tcp, port: 503 }
+  - { protocol: udp, port: 502 }
   - { protocol: rtu, port: COM3, baud_rate: 9600, parity: none }
 ```
 
@@ -137,9 +139,9 @@ servers:
 - 放置可以有 `readonly`（§3）：`none`（缺省）；`all`，整块只读，包括填充位；或该数据块布局中的 tag 名组成的非空列表，列出的 tag 只读。布局中没有的名字、重复的名字是错误；同时列出组合字和它的耦合位是允许的。只读 tag 落在放置没有提供的部分（`offset` 之前）时没有效果；
   - 只读的点按 tag 声明，不按字节或寄存器区间：写描述的人以 tag 思考，区间要对照布局换算，布局一改就要跟着改；
 - 描述中的每个数据块都必须由本描述的单元条目放置，且只能放置一次：没有被放置、被放置两次，或由其他描述的单元条目放置，都是错误；
-- `servers[].protocol` 取 `tcp`、`rtu_over_tcp`、`rtu`；`tcp` 和 `rtu_over_tcp` 的 `host` 缺省 `0.0.0.0`、`port` 缺省 502，`port` 为 1..65535 的整数（es-modbus 不接受端口 0）；`rtu` 的 `port` 为串口路径，可带 `baud_rate`（正整数，缺省 9600）、`parity`（`none`、`odd` 或 `even`，缺省 `none`）、`data_bits`（5、6、7 或 8，缺省 8）、`stop_bits`（1、1.5 或 2，缺省 1）；
-- 两个 `tcp` / `rtu_over_tcp` 服务不得使用相同的 `host` 和 `port`，不同 `host` 可用同一端口；两个 `rtu` 服务不得使用同一串口路径；
-- 数据块条目只有 `name` 和 `layout` 两个键；单元条目只有 `unit_id`、`endian`、`unmapped_read`、`unmapped_write`、`blocks`，放置只有 `start`、`offset` 和 `readonly`；服务条目只有 `protocol`、`unit_ids`，以及 `tcp` / `rtu_over_tcp` 的 `host`、`port` 或 `rtu` 的 `port`、`baud_rate`、`parity`、`data_bits`、`stop_bits`；其他键是错误。根键不检查：`imports`、`layouts`、`item_tables`、`blocks`、`units`、`servers` 以外的键不被使用，可以存放任何内容（如 YAML 锚点）；
+- `servers[].protocol` 取 `tcp`、`rtu_over_tcp`、`udp`、`rtu_over_udp`、`rtu`；`tcp`、`rtu_over_tcp`、`udp` 和 `rtu_over_udp` 的 `host` 缺省 `0.0.0.0`、`port` 缺省 502，`port` 为 1..65535 的整数（es-modbus 不接受端口 0）；`rtu` 的 `port` 为串口路径，可带 `baud_rate`（正整数，缺省 9600）、`parity`（`none`、`odd` 或 `even`，缺省 `none`）、`data_bits`（5、6、7 或 8，缺省 8）、`stop_bits`（1、1.5 或 2，缺省 1）；
+- 两个 `tcp` / `rtu_over_tcp` 服务不得使用相同的 `host` 和 `port`，两个 `udp` / `rtu_over_udp` 服务也不得如此，不同 `host` 可用同一端口；TCP 与 UDP 的端口相互独立，一个 `tcp` 或 `rtu_over_tcp` 服务与一个 `udp` 或 `rtu_over_udp` 服务可以使用相同的 `host` 和 `port`；两个 `rtu` 服务不得使用同一串口路径；
+- 数据块条目只有 `name` 和 `layout` 两个键；单元条目只有 `unit_id`、`endian`、`unmapped_read`、`unmapped_write`、`blocks`，放置只有 `start`、`offset` 和 `readonly`；服务条目只有 `protocol`、`unit_ids`，以及 `tcp` / `rtu_over_tcp` / `udp` / `rtu_over_udp` 的 `host`、`port` 或 `rtu` 的 `port`、`baud_rate`、`parity`、`data_bits`、`stop_bits`；其他键是错误。根键不检查：`imports`、`layouts`、`item_tables`、`blocks`、`units`、`servers` 以外的键不被使用，可以存放任何内容（如 YAML 锚点）；
 - `servers[].unit_ids`（可选）：该服务应答的单元号，非空整数列表，取值 0..255，且每个单元号在装入后必须是模拟器的单元；缺省应答全部单元，包括之后装入的单元；
 - 条目表可以不写在描述里：描述用 `imports` 引入它们，并在 `layouts` 中列出自己的布局；布局文件也与其他来源一样是 `sources` 列表的一项：全部来源一并装入，列出同名且结构相同布局的描述共用该布局；
 - 所有服务共用同一个单元表和同一组数据块，`unit_ids` 只决定各服务应答哪些单元。

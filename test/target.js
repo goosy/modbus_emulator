@@ -9,6 +9,7 @@ export const TARGET = DIST ? "dist" : "src";
 export const {
 	Modbus_Emulator,
 	create_tcp_server,
+	create_udp_server,
 	create_rtu_server,
 	Unit_Map,
 	create_handler,

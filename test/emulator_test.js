@@ -121,7 +121,7 @@ units:
   - { unit_id: 300, blocks: { a: {} } }
   - { unit_id: 1, blocks: { c: { start: 3 } } }
 servers:
-  - { protocol: udp, port: 1 }
+  - { protocol: modbus, port: 1 }
   - { protocol: rtu, port: 5 }
   - { protocol: tcp, port: abc }
   - { protocol: rtu, port: COM_TEST, baud_rate: -1, parity: mark, data_bits: 9, stop_bits: 3 }
@@ -129,7 +129,7 @@ servers:
 `);
 
 		assert.deepEqual(errors, [
-			"servers[0]: protocol must be one of tcp, rtu_over_tcp, rtu",
+			"servers[0]: protocol must be one of tcp, rtu_over_tcp, udp, rtu_over_udp, rtu",
 			"servers[1]: port must be a serial device path",
 			"servers[2]: port must be a TCP port number from 1 to 65535",
 			"servers[3]: baud_rate must be a positive integer",
@@ -207,6 +207,8 @@ servers:
   - { protocol: rtu, port: COM_TEST }
   - { protocol: rtu, port: COM_OTHER, unit_ids: [1, 255] }
   - { protocol: rtu_over_tcp, port: 1504, unit_ids: [1] }
+  - { protocol: udp, port: 1505 }
+  - { protocol: rtu_over_udp, port: 1506, unit_ids: [0, 1] }
 `, (warning) => warnings.push(warning));
 
 		assert.ok(warnings.every(({ server, message }) => message.startsWith(`${server.name}: `)));
@@ -216,6 +218,7 @@ servers:
 			"servers[2] (serial://COM_TEST): unit 0 is the broadcast address of a serial bus, written but never answered",
 			"servers[2] (serial://COM_TEST): reserved units of a serial bus: 248, 255",
 			"servers[3] (serial://COM_OTHER): reserved units of a serial bus: 255",
+			"servers[6] (rtu+udp://0.0.0.0:1506): unit 0 is the broadcast address of a serial bus, written but never answered",
 		]);
 	});
 
@@ -328,7 +331,7 @@ servers:
 		]);
 	});
 
-	test("a TCP port is from 1 to 65535", () => {
+	test("a TCP or UDP port is from 1 to 65535", () => {
 		const errors = errors_of(`
 blocks:
   - { name: a, layout: PUMP }
@@ -338,12 +341,17 @@ servers:
   - { protocol: tcp, port: 99999 }
   - { protocol: rtu_over_tcp, port: -1 }
   - { protocol: tcp, port: 0 }
+  - { protocol: udp, port: 0 }
+  - { protocol: rtu_over_udp, port: 65536 }
 `);
 
-		assert.deepEqual(errors, [0, 1, 2].map((i) => `servers[${i}]: port must be a TCP port number from 1 to 65535`));
+		assert.deepEqual(errors, [
+			...[0, 1, 2].map((i) => `servers[${i}]: port must be a TCP port number from 1 to 65535`),
+			...[3, 4].map((i) => `servers[${i}]: port must be a UDP port number from 1 to 65535`),
+		]);
 	});
 
-	test("two servers may not use the same address or serial port", () => {
+	test("two servers may not use the same address or serial port, and a UDP port is apart from the TCP ones", () => {
 		const errors = errors_of(`
 blocks:
   - { name: a, layout: PUMP }
@@ -354,11 +362,14 @@ servers:
   - { protocol: rtu_over_tcp, host: 0.0.0.0, port: 502 }
   - { protocol: rtu, port: COM_TEST }
   - { protocol: rtu, port: COM_TEST }
+  - { protocol: udp }
+  - { protocol: rtu_over_udp, host: 0.0.0.0, port: 502 }
 `);
 
 		assert.deepEqual(errors, [
 			"servers[1]: port 0.0.0.0:502 is already used by servers[0]",
 			"servers[3]: port COM_TEST is already used by servers[2]",
+			"servers[5]: port 0.0.0.0:502 is already used by servers[4]",
 		]);
 	});
 
@@ -649,6 +660,35 @@ servers:
 		assert.equal((await rtu.read([3, 0, 1], 1)).readUInt16BE(0), 42);
 		assert.equal((await rtu.read([3, 0, 1], 2)).readUInt16BE(0), 7);
 		await assert.rejects(tcp.read([3, 0, 1], 2), { message: "response error: 11" });
+	});
+
+	test("UDP and RTU-over-UDP servers serve the blocks, named by their UDP addresses", async (t) => {
+		const emulator = make(`
+blocks:
+  - { name: a, layout: PUMP }
+units:
+  - { unit_id: 1, blocks: { a: {} } }
+servers:
+  - { protocol: udp, host: ${HOST}, port: 1502 }
+  - { protocol: rtu_over_udp, host: ${HOST}, port: 1503 }
+`);
+		assert.deepEqual(emulator.servers.map(({ name, protocol }) => [name, protocol]), [
+			[`servers[0] (modbus+udp://${HOST}:1502)`, "udp"],
+			[`servers[1] (rtu+udp://${HOST}:1503)`, "rtu_over_udp"],
+		]);
+		emulator.servers.forEach(ephemeral);
+		await emulator.start();
+		t.after(() => emulator.stop());
+		const [udp, rtu] = emulator.servers.map(listening_port).map((port, i) => {
+			const master = new Modbus_Client(master_options(port, i === 1, true));
+			master.on("error", () => { });
+			t.after(() => master.disconnect());
+			return master;
+		});
+
+		assert.equal(await udp.write([6, 0, 1], 42, 1), true);
+		assert.equal(emulator.block("a").id, 42);
+		assert.equal((await rtu.read([3, 0, 1], 1)).readUInt16BE(0), 42);
 	});
 
 	test("all the servers share one handler and the unmapped address is emitted once", async (t) => {
