@@ -90,7 +90,7 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - 服务是 es-modbus 的 `Modbus_Server`，事件为 es-modbus 原有的：`start`、`stop`、`socket_connect`（socket）、`socket_disconnect`（socket）、`socket_error`（error）、`error`（error）、`handler_error`（error）、`receive`（请求帧）、`send`（应答帧）。工厂不添加监听器。`EventEmitter` 在 `error` 事件无监听器时会抛出异常，所以直接使用工厂的调用方须自行监听每个服务的 `error`。
 - handler 抛出异常或返回无效值（批量读的长度不符、寄存器值越界）时，由 es-modbus 作为 `handler_error` 报告，主站收到异常码 0x04。拒绝（§3）不这样报告。
 - `Modbus_Emulator` 是 `EventEmitter`：把每个服务的事件 `<name>` 转发为 `server_<name>`（`server_start`、`server_stop`、`server_socket_connect`、`server_socket_disconnect`、`server_socket_error`、`server_error`、`server_handler_error`、`server_receive`、`server_send`），载荷为 `{ server }`，es-modbus 带有参数时再加 `socket`、`error` 或 `frame`；由 `server.name` 得知来自哪个服务。handler 的事件按原名、原载荷转发。模拟器始终监听其服务的 `error`，自身从不发出 `error`。
-- `Modbus_Emulator` 对 `load` 的每条诊断发出 `warning`，载荷为 `{ server, message }`：串行总线上的服务应答 unit 0 或 248..255 中的单元（§3），每个服务每类一次；`message` 以服务的 `name` 开头。未写 `unit_ids` 的服务在之后的装入增加单元时再次检查这些单元。
+- `Modbus_Emulator` 对 `load` 的每条诊断发出 `warning`，载荷为 `{ server, message }`：串行总线上的服务应答 unit 0 或 248..255 中的单元（§3）。每个这样的单元对每个服务只警告一次：每次装入对每个服务每类最多发出一条警告，只列出此前未警告过的单元。`message` 以服务的 `name` 开头。未写 `unit_ids` 的服务在之后的装入增加单元时再次检查新增的单元，所以可能再收到一条同类警告，列出新增的单元。
 
 ## 5. 描述
 

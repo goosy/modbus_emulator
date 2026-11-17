@@ -59,7 +59,7 @@
 - 服务标签由服务在已装入描述中的位置（`servers[i]`，一次装入有多个来源时带来源前缀）和地址（`modbus://host:port`、`rtu://host:port`、`modbus+udp://host:port`、`rtu+udp://host:port`、`serial://path`）组成，作为 es-modbus 的 `name` 选项交给服务，此后由服务自己携带：`start()` 的错误和转发事件的监听器都读取 `server.name`，模拟器不再另存一份标签列表。
 - `stop()` 用 `Promise.all` 并行停止全部服务，清除已启动的记录，然后把它持有的名称交还给其布局（`block.layout.delete_ldata(name)`）。只交还持有的名称，从不交还先前已交还的名称：它此后可能已被另一个模拟器持有。Ldata 照常可用并留在 `blocks` 中，`start()` 会把它们的名称绑回并再次服务它们；在此之前，它们的名称可供同一登记域中布局相同的另一个模拟器使用。
 - 事件：`Modbus_Emulator` 继承 `EventEmitter`。建立服务后订阅它的 es-modbus 事件，把每个 `<name>` 以 `server_<name>` 重新发出，载荷为 `{ server }`，再加上 `socket`、`error` 或 `frame` 参数；也订阅 handler 的事件，原样重新发出。模拟器始终监听服务的 `error`，所以服务的错误不会抛出；它自己也不发出 `error`，因此没有监听器的模拟器不会因事件而抛出异常。
-- 装入的诊断信息作为 `warning` 事件发出（载荷 `{ server, message }`），因为调用方在构造之后、装入之前就已挂上监听器。对本次装入的、协议既不是 `tcp` 也不是 `udp` 的服务（协议没有 MBAP 帧时，es-modbus 把 unit 0 当作广播地址），检查它应答的单元（其 `unit_ids`，或单元表中的全部单元）中是否有 unit 0 或 248..255；对先前装入的、未写 `unit_ids` 的这类服务，检查本次新增的单元。每个服务每类问题给一条警告，消息以服务的名称开头。
+- 装入的诊断信息作为 `warning` 事件发出（载荷 `{ server, message }`），因为调用方在构造之后、装入之前就已挂上监听器。对本次装入的、协议既不是 `tcp` 也不是 `udp` 的服务（协议没有 MBAP 帧时，es-modbus 把 unit 0 当作广播地址），检查它应答的单元（其 `unit_ids`，或单元表中的全部单元）中是否有 unit 0 或 248..255；对先前装入的、未写 `unit_ids` 的这类服务，检查本次新增的单元。每次装入对每个服务每类问题最多给一条警告，所以每个单元对每个服务只警告一次；消息以服务的名称开头。
 
 ## 5. 构建与测试
 

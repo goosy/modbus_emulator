@@ -115,18 +115,31 @@ emulator.on("request_refused", ({ kind, unit_id, addr, operation }) => console.w
 - A block keeps its content in big-endian; a unit serves the IO buffer of each block in the byte order of the unit, the device byte order of layout-data.
 - Register `addr` is byte `addr * 2` of the unit. Holding and input registers share the same content.
 - Coil `addr` is bit `addr % 8` of byte `addr >> 3` of the unit.
-- Addresses with no block read as 0 / false and ignore writes (warned once per address and operation), unless the unit refuses them (`unmapped_read`, `unmapped_write`).
+- Addresses with no block read as 0 / false and ignore writes (warned once per kind, unit, address and operation), unless the unit refuses them (`unmapped_read`, `unmapped_write`).
 - A read-only point (`readonly` of a placement) refuses the writes: FC 5 / 15 when it writes a read-only bit, FC 6 / 16 when it writes a register with a read-only bit. A refused request reads or writes nothing and is answered with exception 0x02.
 
 See [doc/spec.md](doc/spec.md) for the full specification, [doc/spec-descriptions.md](doc/spec-descriptions.md) for the descriptions and [doc/design.md](doc/design.md) for the implementation. Chinese editions: [doc/spec.zh-CN.md](doc/spec.zh-CN.md), [doc/spec-descriptions.zh-CN.md](doc/spec-descriptions.zh-CN.md), [doc/design.zh-CN.md](doc/design.zh-CN.md).
 
 ## Development
 
+The package is developed with its dependencies `layout-data` and `es-modbus` in a pnpm workspace that lists their repositories and links them with `workspace:*` overrides. Install from the workspace root: `pnpm install` in this directory alone installs the dependencies from npm and drops the links.
+
+From the workspace root:
+
 ```sh
 pnpm install
-pnpm test
-pnpm lint
+pnpm --filter modbus-emulator test
+pnpm --filter modbus-emulator lint
 ```
+
+Or in this directory, running the tools directly:
+
+```sh
+node --test
+node_modules/.bin/eslint .
+```
+
+`node --test` tests the source; `pnpm --filter modbus-emulator test` also builds the bundle and tests it.
 
 ## License
 
