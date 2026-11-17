@@ -34,6 +34,18 @@ describe("Unit_Map", () => {
 		assert.equal(unit_map.resolve(2, 0), null); // a unit without block
 	});
 
+	test("the unit id must be an integer from 0 to 255", () => {
+		const unit_map = new Unit_Map();
+
+		for (const unit_id of [300, 256, -1, "1", 1.5, null]) {
+			assert.throws(() => unit_map.attach_unit(unit_id, block("a", 4)), { name: "RangeError", message: /unit_id must be an integer from 0 to 255/ });
+		}
+		assert.deepEqual(unit_map.unit_ids, []);
+		unit_map.attach_unit(0, block("a", 4));
+		unit_map.attach_unit(255, block("b", 4));
+		assert.deepEqual(unit_map.unit_ids, [0, 255]);
+	});
+
 	test("start and offset must be even non-negative integers, offset below the block size", () => {
 		const unit_map = new Unit_Map();
 

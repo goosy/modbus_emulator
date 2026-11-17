@@ -57,7 +57,7 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
 - `create_rtu_server(path, unit_map, { baud_rate, parity, data_bits, stop_bits, unit_ids, handler, name })`：创建串口上的 RTU 从站，`unit_map` 必填，`baud_rate`、`parity`、`data_bits`、`stop_bits` 缺省为 9600、`none`、8、1。返回 `Modbus_Server`，`start()` 时才打开串口。
 - `name`：可选，`Modbus_Server` 的 `name`，在事件和错误中标明服务；es-modbus 的缺省值为 `Modbus_Server`；
 - `Unit_Map` / `create_handler(unit_map)`：单元表和 es-modbus 的服务端 handler，供不用描述的调用方（如控制器）自行组装。
-  - `attach_unit(unit_id, block, { start, offset, readonly })` 把数据块从其字节 `offset` 起放到单元的字节 `start` 处；选项对象及其中每一项都可省略。`start` 和 `offset` 缺省为 0，须为偶数非负整数，且 `offset` 须小于数据块大小，否则抛出 `RangeError`；`readonly`（§3）为 `none`（缺省）、`all`（整块只读），或该数据块布局中互不相同的 tag 名组成的非空列表，其他值抛出 `RangeError`；同一单元内各数据块的字节区间不得重叠，重叠时抛出 `Error`，指明两个数据块；
+  - `attach_unit(unit_id, block, { start, offset, readonly })` 把数据块从其字节 `offset` 起放到单元的字节 `start` 处；选项对象及其中每一项都可省略。`unit_id` 须为 0 到 255 的整数，否则抛出 `RangeError`；`start` 和 `offset` 缺省为 0，须为偶数非负整数，且 `offset` 须小于数据块大小，否则抛出 `RangeError`；`readonly`（§3）为 `none`（缺省）、`all`（整块只读），或该数据块布局中互不相同的 tag 名组成的非空列表，其他值抛出 `RangeError`；同一单元内各数据块的字节区间不得重叠，重叠时抛出 `Error`，指明两个数据块；
   - `set_endian(unit_id, endian)` 设置单元的字节序（§3），未设置时为 `BE`；单元号不在 0..255 或字节序不是 §2 所列四种之一时抛出 `RangeError`；
   - `get_endian(unit_id)`：获取单元的字节序；
   - `set_unmapped_read(unit_id, value)` / `set_unmapped_write(unit_id, value)` 设置单元如何应答对其未映射地址的读和写（§3）：读取 `zero`（缺省）或 `refuse`，写入 `ignore`（缺省）或 `refuse`；单元号不在 0..255 或取值不在其中时抛出 `RangeError`。`get_unmapped_read(unit_id)` / `get_unmapped_write(unit_id)` 获取它们。与 `set_endian` 一样，可以在挂上该单元的数据块之前或之后调用；

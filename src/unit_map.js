@@ -537,18 +537,19 @@ export class Unit_Map {
 	 * Attaches a block to a unit: bytes [start, start + block.size - offset) of the unit map to
 	 * the bytes of the IO buffer of the block from `offset`, in the byte order of the unit.
 	 *
-	 * @param {number} unit_id - The ID of the unit.
+	 * @param {number} unit_id - The ID of the unit, from 0 to 255.
 	 * @param {import('layout-data').Ldata} block - The data block.
 	 * @param {Object} [options]
 	 * @param {number} [options.start=0] - The byte offset in the unit, even.
 	 * @param {number} [options.offset=0] - The byte offset in the block, even.
 	 * @param {"none"|"all"|string[]} [options.readonly="none"] - All for the whole block, or the read-only tags.
 	 * @return {void}
-	 * @throws {RangeError} When start or offset is not an even non-negative integer, offset is not below the
-	 *     block size, or readonly is not valid.
+	 * @throws {RangeError} When unit_id is not an integer from 0 to 255, start or offset is not an even
+	 *     non-negative integer, offset is not below the block size, or readonly is not valid.
 	 * @throws {Error} When the bytes overlap the ones of another block of the unit.
 	 */
 	attach_unit(unit_id, block, { start = 0, offset = 0, readonly = READONLY_VALUES[0] } = {}) {
+		check_unit_id(unit_id);
 		check_even(start, "start");
 		check_even(offset, "offset");
 		if (offset >= block.size) {
