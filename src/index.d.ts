@@ -222,9 +222,11 @@ export class Modbus_Emulator extends EventEmitter {
 	readonly servers: readonly Modbus_Server[];
 	block(name: string): Ldata | undefined;
 	/**
-	 * Starts the servers that are not running. When any fails, rejects with an `AggregateError` of every failure,
-	 * after stopping all the servers, or with `partial: true` leaving the started ones running. Rejects with an
-	 * `Error` when the emulator has no server.
+	 * Binds the block names back to their layouts, then starts the servers that are not running. When any fails,
+	 * rejects with an `AggregateError` of every failure, after stopping all the servers (the names stay held), or
+	 * with `partial: true` leaving the started ones running. Rejects with an `Error` when the emulator has no
+	 * server, or, starting nothing, with an `Error` whose `errors` lists every block whose layout holds its name
+	 * for another Ldata.
 	 */
 	start(options?: { partial?: boolean }): Promise<void>;
 	/** Stops all the servers and gives the block names back to their layouts; the blocks keep working. */

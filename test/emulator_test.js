@@ -589,6 +589,13 @@ servers:
 		assert.equal(await is_listening(free()), false);
 	});
 
+	test("a failed start keeps the block names held", async (t) => {
+		const { emulator, taken } = await emulator_with_taken_port(t);
+
+		await assert.rejects(emulator.start(), (e) => check_start_error(e, taken));
+		assert.equal(emulator.scope.get_layout("PUMP").get_ldata("pump"), emulator.block("pump"));
+	});
+
 	test("a failed partial start leaves the started servers running", async (t) => {
 		const { emulator, free, taken } = await emulator_with_taken_port(t);
 

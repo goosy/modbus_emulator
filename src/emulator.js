@@ -296,6 +296,32 @@ export class Modbus_Emulator extends EventEmitter {
 		}
 	}
 
+	/** The blocks whose layouts hold their names for another Ldata: they keep this emulator from starting. */
+	#conflicts() {
+		const conflicts = [];
+		for (const [name, block] of this.blocks) {
+			const { layout } = block;
+			let bound;
+			try {
+				bound = layout.get_ldata(name);
+			} catch {
+				// a name the layout does not hold is free
+				continue;
+			}
+			if (bound !== block) conflicts.push(`block ${name} of layout ${layout.name}: the layout holds the name for another ldata`);
+		}
+		return conflicts;
+	}
+
+	/** Binds the names given back by stop() to their layouts again, and holds them for this emulator. */
+	#hold_blocks() {
+		for (const [name, block] of this.blocks) {
+			if (this.#held.has(name)) continue;
+			block.layout.add_ldata(block);
+			this.#held.add(name);
+		}
+	}
+
 	/** Gives the block names held for this emulator back to their layouts, which may create them again. */
 	#release_blocks() {
 		for (const name of this.#held) this.blocks.get(name).layout.delete_ldata(name);
@@ -512,15 +538,24 @@ export class Modbus_Emulator extends EventEmitter {
 
 	/**
 	 * Starts the servers that are not running: the ones loaded since the last start, or all after `stop()`. By
-	 * default it is all or nothing: when any server fails, all the servers are stopped.
+	 * default it is all or nothing: when any server fails, all the servers are stopped. It first binds the block
+	 * names given back by `stop()` to their layouts again, and starts nothing when a layout holds one for another
+	 * Ldata.
 	 *
 	 * @param {Object} [options]
 	 * @param {boolean} [options.partial=false] - Leave the servers that started running when others fail.
-	 * @throws {Error} When the emulator has no server.
+	 * @throws {Error} When the emulator has no server, or with `errors`, every block whose name is held by another.
 	 * @throws {AggregateError} Every failure, each an Error that names its server, with the original error as `cause`.
 	 */
 	async start({ partial = false } = {}) {
 		if (this.servers.length === 0) throw new Error("the emulator has no server: load a description of servers");
+		const conflicts = this.#conflicts();
+		if (conflicts.length > 0) {
+			const error = new Error(`the emulator cannot start:\n${conflicts.join("\n")}`);
+			error.errors = conflicts;
+			throw error;
+		}
+		this.#hold_blocks();
 		// es-modbus restarts a running server on start(): only the others are started
 		const pending = this.servers.filter((server) => !this.#started.has(server));
 		const results = await Promise.allSettled(pending.map((server) => server.start()));
@@ -535,17 +570,23 @@ export class Modbus_Emulator extends EventEmitter {
 			failures.push(new Error(`${server.name}: ${reason?.message ?? reason}`, { cause: reason }));
 		}
 		if (failures.length === 0) return;
-		if (!partial) await this.stop();
+		// the servers only: the block names stay held until the caller stops the emulator
+		if (!partial) await this.#stop_servers();
 		throw new AggregateError(failures, `${failures.length} of ${pending.length} servers failed to start`);
 	}
 
 	/**
 	 * Stops all the servers, and gives the block names back to their layouts: other emulators can then load blocks
-	 * of the same names in the scope. The blocks keep working, and `start()` serves them again.
+	 * of the same names in the scope. The blocks keep working, and `start()` binds their names back and serves them
+	 * again.
 	 */
 	async stop() {
+		await this.#stop_servers();
+		this.#release_blocks();
+	}
+
+	async #stop_servers() {
 		await Promise.all(this.servers.map((server) => server.stop()));
 		this.#started.clear();
-		this.#release_blocks();
 	}
 }
