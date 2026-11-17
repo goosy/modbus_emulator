@@ -85,6 +85,16 @@ function is_mapping(value) {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * Whether a value has the shape of a Description, which the load reads before the scope checks it: the object
+ * `layouts` and the list `blocks`, each block entry a mapping that names a layout (an object) of `layouts`.
+ */
+function has_description_shape(value) {
+	if (!Array.isArray(value?.blocks) || value.layouts === null || typeof value.layouts !== "object") return false;
+	const { layouts } = value;
+	return value.blocks.every((entry) => is_mapping(entry) && Object.hasOwn(layouts, entry.layout) && is_mapping(layouts[entry.layout]));
+}
+
 /** Reports each key of a mapping entry that is not in the allowed list. */
 function check_keys(entry, allowed, where, errors) {
 	if (!is_mapping(entry)) return;
@@ -185,8 +195,8 @@ export class Modbus_Emulator extends EventEmitter {
 					errors.push(...(e.errors ?? [`${prefix}${e.message}`]));
 					continue;
 				}
-			} else if (!Array.isArray(item?.blocks) || item.layouts === null || typeof item.layouts !== "object") {
-				// a Description always has its layouts and its list of blocks; the load reports what else is wrong
+			} else if (!has_description_shape(item)) {
+				// the load of the scope rejects any other object that is not a Description
 				errors.push(`${prefix}not a description file or a Description: compile it with desc_file or yaml`);
 				continue;
 			}

@@ -463,6 +463,13 @@ describe("Modbus_Emulator sources", () => {
 		]);
 	});
 
+	test("an object whose block entries do not name its layouts is not a Description", () => {
+		const { layouts } = yaml(`${HEADER}${blocks_of("a", 1)}`);
+		for (const blocks of [[{ name: "a", layout: "NONE" }], [{ name: "a" }], [null], [{ name: "a", layout: "toString" }]]) {
+			assert.deepEqual(errors_of_load({ layouts, blocks }), ["not a description file or a Description: compile it with desc_file or yaml"]);
+		}
+	});
+
 	test("an object of the shape of a description is compiled with yaml and JSON", () => {
 		const object = {
 			layouts: ["ONE"],
