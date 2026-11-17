@@ -17,8 +17,8 @@
 		"node": ">=20.11"
 	},
 	"dependencies": {
-		"es-modbus": "0.3.1",
-		"layout-data": "0.6.0"
+		"es-modbus": "0.3.2",
+		"layout-data": "0.7.0"
 	},
 	"devDependencies": {
 		"@eslint/js": "10.0.1",
