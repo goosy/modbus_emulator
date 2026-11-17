@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.3.1 - 2026-11-17
+
+### Features
+
+- **Modbus UDP and RTU over UDP.** `create_udp_server(unit_map, options)` creates a Modbus UDP server, or RTU over UDP with `rtu: true`, with the options of `create_tcp_server`. A description takes the protocols `udp` and `rtu_over_udp`, with the keys of `tcp`. UDP ports are checked apart from the TCP ones, a `udp` service gets no serial bus warning, and the services are labeled `modbus+udp://` and `rtu+udp://`.
+- **Requires es-modbus 0.3.2 and layout-data 0.7.0.**
+
+### Fixes
+
+- **The emulator holds its block names whenever its services run.** `start()` binds the names given back by `stop()` to their layouts again, and a failed start gives none back. When a layout holds the name of a block for another Ldata, `start()` rejects with an `Error` whose `errors` lists every conflicting block, and starts no service.
+- **A listener error of an FC 6 / FC 5 write is reported as `listener_error`.** It was thrown to es-modbus, which answered exception 0x04 although the point was written; the write is now committed like FC 16 / FC 15, and the master gets a normal response.
+- **`Unit_Map#attach_unit` checks the unit id**: an id that is not an integer from 0 to 255 throws a `RangeError`, as in `set_endian` and `set_unmapped_*`.
+- **A hand-built `Description` whose block entry is not a mapping or names no layout of its `layouts`** is reported as not a `Description` by `load`, instead of throwing a `TypeError`.
+
+## v0.3.1 - 2026-11-17 (中文)
+
+### 功能
+
+- **Modbus UDP 和 RTU over UDP。** `create_udp_server(unit_map, options)` 创建 Modbus UDP 服务，`rtu: true` 时为 RTU over UDP，选项与 `create_tcp_server` 相同。描述可以使用协议 `udp` 和 `rtu_over_udp`，键与 `tcp` 相同。UDP 端口与 TCP 端口分开检查，`udp` 服务不产生串行总线警告，服务的标签为 `modbus+udp://` 和 `rtu+udp://`。
+- **要求 es-modbus 0.3.2 和 layout-data 0.7.0。**
+
+### 修复
+
+- **服务运行期间，模拟器始终持有其数据块名。** `start()` 把 `stop()` 交还的块名重新绑定到各自的布局，启动失败时不交还任何块名。某个布局把数据块的名字留给了另一个 Ldata 时，`start()` 以 `Error` 拒绝，其 `errors` 列出全部冲突的数据块，且不启动任何服务。
+- **FC 6 / FC 5 写入时监听器抛出的异常作为 `listener_error` 报告。** 以前它被抛给 es-modbus，主站收到异常码 0x04，而数据已经写入；现在单点写与 FC 16 / FC 15 一样提交，主站照常收到应答。
+- **`Unit_Map#attach_unit` 检查单元号**：不是 0 到 255 的整数时抛出 `RangeError`，与 `set_endian`、`set_unmapped_*` 一致。
+- **手工构造的 `Description` 中数据块条目不是映射，或引用的布局不在其 `layouts` 中时**，`load` 报告它不是 `Description`，而不再抛出 `TypeError`。
+
 ## v0.3.0 - 2026-11-14
 
 ### Breaking changes
