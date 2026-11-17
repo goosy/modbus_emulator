@@ -133,6 +133,20 @@ describe("batch writes", () => {
 		assert.deepEqual([a.r, a.n, b.r, b.n], [1234.5, 9, -2, 8]);
 	});
 
+	test("a listener error of an FC 6 / FC 5 write is emitted and the request is answered", async (t) => {
+		const { master, a, handler, log } = await serve(t);
+		const errors = [];
+		handler.on("listener_error", ({ block, error }) => errors.push(`${block.name}: ${error.message}`));
+		a.on("write", () => { throw new Error("listener of a"); });
+
+		assert.equal(await master.write([6, 2, 1], 9, UNIT), true); // a.n
+		assert.equal(await master.write([5, 48, 1], true, UNIT), true); // a.c0
+
+		assert.deepEqual(log, ["a access write n", "a.n 7->9", "a write", "a access write c0", "a.c0 false->true", "a write"]);
+		assert.deepEqual(errors, ["a: listener of a", "a: listener of a"]);
+		assert.deepEqual([a.n, a.c0], [9, true]);
+	});
+
 	test("the unmapped registers of a batch write are skipped and emitted", () => {
 		const unmapped = [];
 		const { b, handler } = make_unit();

@@ -266,7 +266,7 @@ const in_transactions = (blocks, fn, report) => {
  *   set_holding_registers, set_coils. It emits `unmapped` and `request_refused` with
  *   `{ kind, unit_id, addr, operation }` once per key, for at most 1024 keys each, then `unmapped_limit` /
  *   `request_refused_limit` with `{ limit }` once, and `listener_error` with `{ block, error }` for an error a
- *   block listener throws when a batch request commits. A refused request throws a Modbus_Exception(0x02).
+ *   block listener throws when a write or a batch read commits. A refused request throws a Modbus_Exception(0x02).
  */
 export function create_handler(unit_map) {
 	const handler = new EventEmitter();
@@ -326,7 +326,8 @@ export function create_handler(unit_map) {
 			if (block == null) return;
 			REGISTER_BYTES[swapped ? 1 : 0] = value >> 8;
 			REGISTER_BYTES[swapped ? 0 : 1] = value & 0xff;
-			block.write_bytes(offset, REGISTER_BYTES);
+			// one FC 6 request: committed like a batch write, so a listener error is reported, not thrown
+			in_transactions([block], () => block.write_bytes(offset, REGISTER_BYTES), report_listener_error);
 		},
 
 		// one FC 16 request: written atomically, one write_bytes per run
@@ -367,8 +368,10 @@ export function create_handler(unit_map) {
 		set_coil: (addr, value, unit_id) => {
 			const info = get_coil_info(addr, unit_map, unit_id);
 			admit("coil", "write", unit_id, single_point(addr, info, "write"));
-			if (info.block == null) return;
-			info.block.write_bit(info.offset, info.bit_mask, value);
+			const { block, offset, bit_mask } = info;
+			if (block == null) return;
+			// one FC 5 request: committed like a batch write, so a listener error is reported, not thrown
+			in_transactions([block], () => block.write_bit(offset, bit_mask, value), report_listener_error);
 		},
 
 		// one FC 15 request: written atomically, one write_bit per byte and value
