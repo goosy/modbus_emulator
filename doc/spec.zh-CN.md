@@ -32,10 +32,10 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
   - FC 6 / FC 16：写到的寄存器的 16 位中有只读位时，请求整个拒绝；
   - 因此只读 tag 和可写 tag 共用的寄存器不能用 FC 6 / FC 16 写，可写 tag 的位仍可用 FC 5 / FC 15 写，包括一次 FC 15 写连续多位；跨寄存器的只读 tag，FC 16 只写到其中一个寄存器也拒绝；
 - 被拒的请求不读写任何点，应答异常码 0x02（Illegal Data Address）。拒绝是协议的正常应答，不是 handler 的错误：es-modbus 不为它发出 `handler_error`。在串行总线上，被拒的广播（unit 0）不应答（广播从不应答），但它的写入同样被拒绝；
-- 写入经 Ldata 的写入方法完成，因此数据块的 `change` 和 `write` 事件照常触发；
+- 写入经 Ldata 的写入方法完成，因此数据块及其 tag 的事件照常触发：`write` 在请求处理之中发出，`change` 在 handler 返回后由微任务派发（layout-data 0.9.0）；
 - 一次 FC 16 / FC 15 请求是原子的：对写到的每个块写入一次，发出一次 `write` 和一次 `write` 类的 `access`；写入中途失败时，涉及的块全部恢复，主站收到异常码 0x04。FC 6 / FC 5 写一个点，以同样的方式提交。这由 handler 完成，所以用 `create_handler` 自行装配的服务行为相同；
 - 一次读请求对读到的每个块发出一次 `read` 类的 `access`，只报告被读的 tag；线圈只报告被读的位所对应的 Bool；
-- 提交一次请求时，块的监听器（`change`、`write`、`access`）抛出的异常既不撤销写入，也不影响其他块：主站照常收到应答，handler 发出 `listener_error`，载荷 `{ block, error }`；
+- 提交一次请求时，块及其 tag 的监听器（`write`、`access`）抛出的异常既不撤销写入，也不影响其他块：主站照常收到应答，handler 发出 `listener_error`，载荷 `{ block, error }`。`change` 处理器的异常 handler 无从得知：layout-data 在其派发的微任务中抛出它，成为未捕获异常；
 - 单元内没有数据块的地址是未映射的。缺省时它读为 0 / false，写入被忽略，不应答异常，因此跨越空档的读写仍能成功，handler 为未映射的点发出 `unmapped`（见“事件”）；
   - 单元也可以改为拒绝（`unmapped_read`、`unmapped_write`，[spec-descriptions.zh-CN.md](spec-descriptions.zh-CN.md)）：`unmapped_read: refuse` 时，读到该单元未映射地址的读请求（FC 1 / 2 / 3 / 4）被拒绝；`unmapped_write: refuse` 时，写请求（FC 5 / 6 / 15 / 16）同样被拒绝。两者相互独立，测试可以只拒绝写入，同时让主站的轮询照常成功；
   - 只有成功的请求才发出 `unmapped`：被拒的请求改为发出 `request_refused`（见“事件”）；
@@ -81,7 +81,7 @@ modbus-emulator 是一个 Modbus 设备模拟器库：对外提供 Modbus 从站
   | `unmapped_limit` | `{ limit }` | 已发出 `unmapped` 的第 1024 个键，之后不再发出 `unmapped` |
   | `request_refused` | `{ kind, unit_id, addr, operation }` | 请求被拒绝（§3），对造成拒绝的每个点发出 |
   | `request_refused_limit` | `{ limit }` | 已发出 `request_refused` 的第 1024 个键，之后不再发出 `request_refused` |
-  | `listener_error` | `{ block, error }` | 提交一次请求时块的监听器（`change`、`write`、`access`）抛出异常；数据保持写入，主站照常收到应答 |
+  | `listener_error` | `{ block, error }` | 提交一次请求时块及其 tag 的监听器（`write`、`access`）抛出异常；数据保持写入，主站照常收到应答 |
 
   - `unmapped` 和 `request_refused` 的载荷指一个点：`kind` 是它的数据类型，`"holding_register"`（FC 3 / 6 / 16）、`"input_register"`（FC 4）或 `"coil"`（FC 1 / 2 / 5 / 15：handler 没有离散输入，es-modbus 用线圈应答 FC 2）；`addr` 是它的寄存器地址或线圈地址；`operation` 为 `"read"` 或 `"write"`；
   - 造成拒绝的点：写请求写到的只读点，以及请求在拒绝未映射地址的单元中读写到的未映射点；请求中其他的点不发出。一个点要么已映射且只读，要么未映射，调用方用 `unit_map.resolve` 即可区分。被拒请求的范围可从 `server_receive` 的请求帧得知；

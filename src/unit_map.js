@@ -86,9 +86,8 @@ export function readonly_errors(readonly, layout) {
 const build_mask = (readonly, block) => {
 	const mask = new Uint8Array(block.size);
 	if (readonly === "all") return mask.fill(0xff);
-	const names = new Set(readonly);
-	for (const { name, offset, length } of block.layout.items) {
-		if (!names.has(name)) continue;
+	for (const name of readonly) {
+		const { offset, length } = block.get(name).item;
 		if (length === 1) mask[offset >> 3] |= 1 << (offset % 8);
 		else mask.fill(0xff, offset >> 3, ((offset + length - 1) >> 3) + 1);
 	}

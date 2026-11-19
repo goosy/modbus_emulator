@@ -46,7 +46,7 @@ export type Unmapped_Event = Point_Event;
 /** A point that causes the refusal of a request, answered with exception 0x02. */
 export type Request_Refused_Event = Point_Event;
 
-/** An error a listener of a block throws when a request commits; the data stay written. */
+/** An error a `write` or `access` listener of a block or a tag throws when a request commits; the data stay written. */
 export interface Listener_Error_Event {
 	block: Ldata;
 	error: unknown;

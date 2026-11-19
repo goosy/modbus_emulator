@@ -78,7 +78,9 @@ function coil_bytes(values) {
 // registers 0..7: a.r = 1234.5, a.n = 9, b.r = -2, b.n = 8
 const BOTH_BLOCKS = Buffer.concat([block_registers(1234.5, 9), block_registers(-2, 8)]);
 
-// The logs are checked before the values: reading a tag emits an `access` of kind read.
+// The logs are checked before the values: reading a tag emits an `access` of kind read. A block
+// emits `write` at the commit, and its `change` in a microtask after the handler returns, which
+// runs before the master gets the response.
 describe("batch writes", () => {
 	test("an FC 16 request across blocks writes each block once, without intermediate values", async (t) => {
 		const { master, a, b, log } = await serve(t);
@@ -86,8 +88,8 @@ describe("batch writes", () => {
 		assert.equal(await master.write([16, 0, 8], BOTH_BLOCKS, UNIT), true);
 
 		assert.deepEqual(log, [
-			"a access write r,n,c0,c1,c2", "a.r 1.5->1234.5", "a.n 7->9", "a write",
-			"b access write r,n,c0,c1,c2", "b.r 1.5->-2", "b.n 7->8", "b write",
+			"a access write r,n,c0,c1,c2", "a write", "b access write r,n,c0,c1,c2", "b write",
+			"a.r 1.5->1234.5", "a.n 7->9", "b.r 1.5->-2", "b.n 7->8",
 		]);
 		assert.deepEqual([a.r, a.n, b.r, b.n], [1234.5, 9, -2, 8]);
 	});
@@ -103,8 +105,8 @@ describe("batch writes", () => {
 		assert.equal(await master.write([15, 49, 64], coil_bytes(values), UNIT), true);
 
 		assert.deepEqual(log, [
-			"a access write c1,c2", "a.c2 false->true", "a write",
-			"b access write r,n,c0", "b.r 1.5->0", "b.n 7->0", "b.c0 false->true", "b write",
+			"a access write c1,c2", "a write", "b access write r,n,c0", "b write",
+			"a.c2 false->true", "b.r 1.5->0", "b.n 7->0", "b.c0 false->true",
 		]);
 		assert.deepEqual([a.c0, a.c1, a.c2, b.c0, b.c1], [false, false, true, true, false]);
 	});
@@ -124,7 +126,7 @@ describe("batch writes", () => {
 		const errors = [];
 		handler.on("listener_error", ({ block, error }) => errors.push(`${block.name}: ${error.message}`));
 		a.on("write", () => { throw new Error("listener of a"); });
-		b.get("n").on("change", () => { throw new Error("listener of b"); });
+		b.on("write", () => { throw new Error("listener of b"); });
 
 		assert.equal(await master.write([16, 0, 8], BOTH_BLOCKS, UNIT), true);
 
@@ -142,7 +144,7 @@ describe("batch writes", () => {
 		assert.equal(await master.write([6, 2, 1], 9, UNIT), true); // a.n
 		assert.equal(await master.write([5, 48, 1], true, UNIT), true); // a.c0
 
-		assert.deepEqual(log, ["a access write n", "a.n 7->9", "a write", "a access write c0", "a.c0 false->true", "a write"]);
+		assert.deepEqual(log, ["a access write n", "a write", "a.n 7->9", "a access write c0", "a write", "a.c0 false->true"]);
 		assert.deepEqual(errors, ["a: listener of a", "a: listener of a"]);
 		assert.deepEqual([a.n, a.c0], [9, true]);
 	});
@@ -188,6 +190,8 @@ describe("batch reads", () => {
 		const image = Buffer.concat([a.read_bytes(), b.read_bytes()]);
 		const coils = Array.from({ length: 64 }, (_, i) => ((image[(49 + i) >> 3] >> ((49 + i) % 8)) & 1) === 1);
 		const expected = coil_bytes(coils);
+		// the changes of a.c2 and b.c0 are dispatched in a microtask
+		await Promise.resolve();
 		log.length = 0;
 
 		for (const fc of [1, 2]) assert.deepEqual(await master.read([fc, 49, 64], UNIT), expected);

@@ -7,7 +7,7 @@ A Modbus device emulator library. It provides Modbus slave services (TCP, RTU ov
 - Slave transports: Modbus TCP, RTU over TCP, Modbus UDP, RTU over UDP, RTU (serial port).
 - Several services at once, sharing the same data blocks.
 - Blocks are described in YAML (a file or text in code), or assembled in code with `Unit_Map`.
-- Writes from the master go through Ldata, so the `change` and `write` events fire as usual.
+- Writes from the master go through Ldata, so the `write` and `change` events of blocks and tags fire as usual.
 
 ## Install
 
@@ -106,7 +106,7 @@ emulator.on("request_refused", ({ kind, unit_id, addr, operation }) => console.w
 ```
 
 - The emulator forwards each event `<name>` of its servers as `server_<name>` with `{ server }` and the argument of the event (`socket`, `error` or `frame`); `server.name` is the label of the service, such as `servers[0] (modbus://0.0.0.0:1502)`.
-- The handler emits `unmapped` for the unmapped points of a request that succeeds, `request_refused` for the points that cause a refusal, each once per (kind, unit, address, operation) and at most 1024 times (then `unmapped_limit` / `request_refused_limit` once), and `listener_error` when a block listener throws; the emulator forwards them.
+- The handler emits `unmapped` for the unmapped points of a request that succeeds, `request_refused` for the points that cause a refusal, each once per (kind, unit, address, operation) and at most 1024 times (then `unmapped_limit` / `request_refused_limit` once), and `listener_error` when a `write` or `access` listener of a block or a tag throws; the emulator forwards them. An error of a `change` handler is an uncaught exception of layout-data, so catch it in the handler.
 - The emulator always listens to `error` of its servers and never emits `error`, so it never throws from an event.
 - The emulator emits `warning` with `{ server, message }` for the diagnostics of a `load`, such as a service on a serial bus that answers the broadcast unit 0.
 
